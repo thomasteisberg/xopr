@@ -1,0 +1,163 @@
+################################################################################
+# Build Configuration
+################################################################################
+
+[build-system]
+build-backend = "hatchling.build"
+requires = ["hatchling"]
+
+################################################################################
+# Project Configuration
+################################################################################
+
+[project]
+name = "xopr"
+# You can chose to use dynamic versioning with hatch or static where you add it manually.
+version = "0.1.0"
+
+description = "Open Polar Radar data access tools for Xarray"
+authors = [
+    { name = "Thomas Teisberg, Shane Grigsby", email = "thomas.teisberg@astera.org" },
+]
+license = "MIT"
+requires-python = ">= 3.10" # Adjust based on the minimum version of Python that you support
+readme = {"file" = "README.md", "content-type" = "text/markdown"}
+# Please consult https://pypi.org/classifiers/ for a full list.
+classifiers = [
+    "Development Status :: 2 - Pre-Alpha",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3 :: Only",
+]
+# TODO: add keywords
+keywords = []
+# TODO: add dependencies
+dependencies = []
+
+[project.urls]
+Homepage = "https://github.com/thomasteisberg/xopr"
+"Source Code" = "https://github.com/thomasteisberg/xopr"
+"Bug Tracker" = "https://github.com/thomasteisberg/xopr/issues"
+Documentation = "https://xopr.readthedocs.io"
+Download = "https://pypi.org/project/xopr/#files"
+
+[project.optional-dependencies]
+dev = [
+    "hatch",
+    "pre-commit",
+]
+################################################################################
+# Tool Configuration
+################################################################################
+
+# Hatch is building your package's wheel and sdist
+# This tells hatch to only include Python packages (i.e., folders with __init__.py) in the build.
+# read more about package building, here:
+# https://www.pyopensci.org/python-package-guide/package-structure-code/python-package-distribution-files-sdist-wheel.html
+[tool.hatch.build]
+only-packages = true
+
+# This tells Hatch to build the package from the src/me directory.
+# Read more about src layouts here: https://www.pyopensci.org/python-package-guide/package-structure-code/python-package-structure.html
+[tool.hatch.build.targets.wheel]
+packages = ["src/xopr"]
+
+######## Configure pytest for your test suite ########
+[tool.pytest.ini_options]
+testpaths = ["tests"] # Tells pytest what directory tests are in
+markers = ["raises"] # Tells pytest to not raise a warning if you use @pytest.mark.raises
+
+[tool.coverage.paths]
+source = [
+    "src/xopr",
+    "*/site-packages/xopr",
+]
+
+[tool.coverage.run]
+# Ensures code coverage is measured for branches (conditional statements with different outcomes) in your code.
+branch = true
+parallel = true
+
+[tool.coverage.report]
+# This configures the output test coverage report
+exclude_lines = ["pragma: no cover"]
+precision = 2
+
+# Use UV to create Hatch environments
+[tool.hatch.envs.default]
+installer = "uv"
+################################################################################
+# Hatch Environments
+################################################################################
+
+#--------------- Build and check your package ---------------#
+
+# This table installs the tools you need to test and build your package
+[tool.hatch.envs.build]
+description = """Test the installation the package."""
+dependencies = [
+    "pip",
+    "twine",
+]
+detached = true
+
+# This table installs created the command hatch run install:check which will build and check your package.
+[tool.hatch.envs.build.scripts]
+check = [
+    "pip check",
+    "hatch build {args:--clean}",
+    "twine check dist/*",
+]
+
+#--------------- Run tests ---------------#
+
+
+[tool.hatch.envs.test]
+description = """Run the test suite."""
+extra-dependencies = [
+    "pytest",
+    "pytest-cov",
+    "pytest-raises",
+    "pytest-randomly",
+    "pytest-xdist",
+]
+
+[[tool.hatch.envs.test.matrix]]
+python = ["3.10", "3.11", "3.12", "3.13"]
+
+[tool.hatch.envs.test.scripts]
+run = "pytest {args:--cov=xopr --cov-report=term-missing}"
+
+#--------------- Build and preview your documentation ---------------#
+
+# This sets up a hatch environment with associated dependencies that need to be installed
+[tool.hatch.envs.docs]
+description = """Build or serve the documentation."""
+python = "3.10"
+dependencies = [
+    "pydata_sphinx_theme ~=0.16",
+    "myst-parser ~=4.0",
+    "Sphinx ~=8.0",
+    "sphinx-autobuild ==2024.10.3"
+]
+
+# This table contains the scripts that you can use to build and serve your docs
+# hatch run docs:build will build your documentation
+# hatch run docs:serve will serve them 'live' on your computer locally
+[tool.hatch.envs.docs.scripts]
+build = ["sphinx-apidoc -o docs/api src/xopr", "sphinx-build {args:-W -b html docs docs/_build}"]
+serve = ["sphinx-apidoc -o docs/api src/xopr", "sphinx-autobuild docs --watch src/xopr {args:-b html docs/_build/serve}"]
+
+#--------------- Check security for your dependencies ---------------#
+
+[tool.hatch.envs.audit]
+description = """Check dependencies for security vulnerabilities."""
+extra-dependencies = [
+    "pip-audit",
+]
+
+[tool.hatch.envs.audit.scripts]
+check = ["pip-audit"]
+
+#--------------- Typing ---------------#
