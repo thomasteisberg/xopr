@@ -1,0 +1,20 @@
+name: xopr
+channels:
+  - conda-forge
+dependencies:
+  - numpy
+  - xarray
+  - dask
+  - h5netcdf
+  - requests
+  - matplotlib
+  - copier
+  - hatch
+  - ca-certificates
+  - certifi
+  - openssl
+  - ipykernel
+  - aiohttp
+  - hvplot
+  - jupyter_bokeh
+  - geoviews
