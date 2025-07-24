@@ -5,6 +5,7 @@ import pandas as pd
 import numpy as np
 
 from xopr.cf_units import apply_cf_compliant_attrs
+import xopr.ops_api
 
 class OPRConnection:
     def __init__(self, collection_url: str = "https://data.cresis.ku.edu/data/", cache_dir: str = None):
@@ -86,16 +87,31 @@ class OPRConnection:
 
         #ds['slow_time'] = pd.DatetimeIndex(ds['slow_time'].values)
 
-        # TODO: Fake DOI until we can pull it from the STAC catalog
-        ds.attrs['doi'] = '10.18738/T8/J38CO5'
-        ds.attrs['ror'] = '00hj54h04'
-        ds.attrs['funders'] = {'NSF': '2019719', 'G. Unger Vetlesen Foundation': None}
-        ds.attrs['funder_text'] = 'This work was supported by the Center for Oldest Ice Exploration, an NSF Science and Technology Center (NSF 2019719) and the G. Unger Vetlesen Foundation.'
-        ds.attrs['license'] = 'http://creativecommons.org/publicdomain/zero/1.0'
+        # # TODO: Fake DOI until we can pull it from the STAC catalog
+        # ds.attrs['doi'] = '10.18738/T8/J38CO5'
+        # ds.attrs['ror'] = '00hj54h04'
+        # ds.attrs['funders'] = {'NSF': '2019719', 'G. Unger Vetlesen Foundation': None}
+        # ds.attrs['funder_text'] = 'This work was supported by the Center for Oldest Ice Exploration, an NSF Science and Technology Center (NSF 2019719) and the G. Unger Vetlesen Foundation.'
+        # ds.attrs['license'] = 'http://creativecommons.org/publicdomain/zero/1.0'
 
         # Apply CF-compliant attributes
         ds = apply_cf_compliant_attrs(ds)
-        
+
+        # Get the season and segment from the URL
+        import re
+        match = re.search(r'(\d{4}_\w+_[A-Za-z0-9]+)\/[\w_]+\/([\d_]+)', url)
+        if match:
+            season, segment = match.groups()
+            ds.attrs['season'] = season
+            ds.attrs['segment'] = segment
+
+            # Load citation information
+            result = xopr.ops_api.get_segment_metadata(segment_name=segment, season_name=season)
+            if result:
+                ds.attrs['doi'] = set(result['data']['dois'])
+                ds.attrs['ror'] = set(result['data']['rors'])
+                ds.attrs['funder_text'] = result['data']['funding_sources']
+
         return ds
     
 
@@ -163,8 +179,12 @@ def generate_citation(ds: xr.Dataset) -> str:
     citation_string = ""
 
     if 'ror' in ds.attrs:
-        institution_name = get_institution(ds.attrs['ror'])
-        citation_string += f"This data was collected by {institution_name} (ROR: {ds.attrs['ror']}).\n"
+        if isinstance(ds.attrs['ror'], (set, list)):
+            institution_name = ', '.join([get_institution(ror) for ror in ds.attrs['ror']])
+        else:
+            institution_name = get_institution(ds.attrs['ror'])
+        
+        citation_string += f"This data was collected by {institution_name}.\n"
 
     citation_string += "Data was processed using the Open Polar Radar (OPR) Toolbox: https://doi.org/10.5281/zenodo.5683959\n"
 
