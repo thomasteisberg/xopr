@@ -1,3 +1,6 @@
+# This quick prototype is heavily AI-generated and definitely needs human review.
+
+import base64
 import requests
 import json
 import urllib.parse
@@ -52,6 +55,81 @@ def get_segment_id_by_name(segment_name, season_name):
         return None
     except json.JSONDecodeError as e:
         print(f"Error parsing JSON response: {e}")
+        return None
+
+
+def get_layer_points(segment_id=None, segment_name=None, season_name=None, location="arctic", layer_names=None):
+    """
+    Get layer points for a segment from the OPS API
+    
+    Args:
+        segment_id (int, optional): The segment ID to query
+        segment_name (str, optional): The segment name (alternative to segment_id)
+        season_name (str, optional): The season name (required if using segment_name)
+        location (str): Location name (default: "arctic")
+        layer_names (list, optional): List of layer names to retrieve (default: all layers)
+    
+    Returns:
+        dict: API response as JSON containing layer points data
+    """
+    
+    url = "https://ops.cresis.ku.edu/ops/get/layer/points"
+    
+    # Prepare the data payload - support both segment_id and segment_name approaches
+    if segment_id is not None:
+        data_payload = {
+            "properties": {
+                "location": location,
+                "segment_id": segment_id,
+            }
+        }
+    elif segment_name is not None and season_name is not None:
+        data_payload = {
+            "properties": {
+                "location": location,
+                "season": season_name,
+                "segment": segment_name,
+            }
+        }
+    else:
+        raise ValueError("Must provide either segment_id or both segment_name and season_name")
+    
+    # Add layer names if specified
+    if layer_names:
+        data_payload["properties"]["lyr_name"] = layer_names
+    
+    # URL encode the JSON data
+    encoded_data = urllib.parse.quote(json.dumps(data_payload))
+    
+    # Form data
+    form_data = f"app=rds&data={encoded_data}"
+    
+    # Create basic auth header for anonymous user
+    credentials = base64.b64encode(b"anonymous:anonymous").decode("ascii")
+
+    # Headers with basic authentication
+    headers = {
+        'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
+        'Authorization': f'Basic {credentials}',
+        'Cookie': 'userName=anonymous; isAuthenticated=0'
+    }
+    
+    try:
+        # Make the POST request
+        response = requests.post(url, data=form_data, headers=headers)
+        
+        # Check if request was successful
+        response.raise_for_status()
+        
+        # Return JSON response
+        return response.json()
+        
+    except requests.exceptions.RequestException as e:
+        print(f"Error making request: {e}")
+        return None
+    except json.JSONDecodeError as e:
+        print(f"Error parsing JSON response: {e}")
+        print(f"Response text: {response.text}")
         return None
 
 

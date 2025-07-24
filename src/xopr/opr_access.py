@@ -55,8 +55,8 @@ class OPRConnection:
         ds = ds.squeeze() # Drop the singleton dimensions matlab adds
 
         ds = ds.rename({ # Label the dimensions with more useful names
-            'phony_dim_0': 'slow_time_idx',
-            'phony_dim_3': 'fast_time_idx',
+            ds.Data.dims[0]: 'slow_time_idx',
+            ds.Data.dims[1]: 'fast_time_idx',
         })
 
         # Make variables with no dimensions into scalar attributes
@@ -195,3 +195,56 @@ def generate_citation(ds: xr.Dataset) -> str:
         citation_string += f"Please include the following funder acknowledgment:\n{ds.attrs['funder_text']}\n"
 
     return citation_string if citation_string else "No citation information available for this dataset."
+
+def get_layers(ds: xr.Dataset) -> dict:
+    """
+    Fetch layer data from the OPS API and add it to the dataset.
+
+    Parameters
+    ----------
+    ds : xr.Dataset
+        The xarray Dataset containing radar data.
+
+    Returns
+    -------
+    dict
+        A dictionary mapping layer IDs to their corresponding data.
+    """
+    
+    layer_points = xopr.ops_api.get_layer_points(
+        segment_name=ds.attrs['segment'],
+        season_name=ds.attrs['season'],
+        location="antarctic" # TODO: Shouldn't be hardcoded
+    )
+
+    layer_ds_raw = xr.Dataset(
+        {k: (['gps_time'], v) for k, v in layer_points['data'].items() if k != 'gps_time'},
+        coords={'gps_time': layer_points['data']['gps_time']}
+    )
+    # Split into a dictionary of layers based on lyr_id
+    layer_ids = set(layer_ds_raw['lyr_id'].to_numpy())
+    layer_ids = [int(layer_id) for layer_id in layer_ids if not np.isnan(layer_id)]
+
+    print(layer_ids)
+    layers = {}
+    for layer_id in layer_ids:
+        l = layer_ds_raw.where(layer_ds_raw['lyr_id'] == layer_id, drop=True)
+        l = l.rename({'twtt': f'layer_{layer_id}_twtt'})
+
+
+        l = l.rename({'gps_time': 'slow_time'})
+        l = l.set_coords(['slow_time'])
+
+        slow_time_1d = pd.to_datetime(l['slow_time'].values, unit='s')
+        l = l.assign_coords(slow_time=('slow_time', slow_time_1d))
+
+        # Merge the twtt field into ds using the slow_time dimension from ds and
+        # interpolating the layer data to match
+        l = l.interp(slow_time=ds['slow_time'], method='linear')
+        ds = xr.merge([ds, l], compat='override')
+
+        
+
+    return ds
+    
+
