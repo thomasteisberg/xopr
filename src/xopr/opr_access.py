@@ -71,28 +71,16 @@ class OPRConnection:
             ds = ds.drop_vars('file_type')
 
         # Name the two time coordinates
-        ds = ds.rename({'Time': 'fast_time', 'GPS_time': 'slow_time'})
-        ds = ds.set_coords(['slow_time', 'fast_time'])
-
-        # Turn times into datetime objects -- TODO: Annoyingly this breaks matplotlib.imshow
-        # fast_time_1d = pd.to_timedelta(ds['fast_time'].values, unit='s')
-        # ds = ds.assign_coords(fast_time=('fast_time_idx', fast_time_1d))
+        ds = ds.rename({'Time': 'twtt', 'GPS_time': 'slow_time'})
+        ds = ds.set_coords(['slow_time', 'twtt'])
 
         slow_time_1d = pd.to_datetime(ds['slow_time'].values, unit='s')
         ds = ds.assign_coords(slow_time=('slow_time_idx', slow_time_1d))
 
         # Make fast_time and slow_time the indexing coordinates
-        ds = ds.swap_dims({'fast_time_idx': 'fast_time'})
+        ds = ds.swap_dims({'fast_time_idx': 'twtt'})
         ds = ds.swap_dims({'slow_time_idx': 'slow_time'})
 
-        #ds['slow_time'] = pd.DatetimeIndex(ds['slow_time'].values)
-
-        # # TODO: Fake DOI until we can pull it from the STAC catalog
-        # ds.attrs['doi'] = '10.18738/T8/J38CO5'
-        # ds.attrs['ror'] = '00hj54h04'
-        # ds.attrs['funders'] = {'NSF': '2019719', 'G. Unger Vetlesen Foundation': None}
-        # ds.attrs['funder_text'] = 'This work was supported by the Center for Oldest Ice Exploration, an NSF Science and Technology Center (NSF 2019719) and the G. Unger Vetlesen Foundation.'
-        # ds.attrs['license'] = 'http://creativecommons.org/publicdomain/zero/1.0'
 
         # Apply CF-compliant attributes
         ds = apply_cf_compliant_attrs(ds)
@@ -225,12 +213,10 @@ def get_layers(ds: xr.Dataset) -> dict:
     layer_ids = set(layer_ds_raw['lyr_id'].to_numpy())
     layer_ids = [int(layer_id) for layer_id in layer_ids if not np.isnan(layer_id)]
 
-    print(layer_ids)
     layers = {}
     for layer_id in layer_ids:
         l = layer_ds_raw.where(layer_ds_raw['lyr_id'] == layer_id, drop=True)
-        l = l.rename({'twtt': f'layer_{layer_id}_twtt'})
-
+        #l = l.rename({'twtt': f'layer_{layer_id}_twtt'})
 
         l = l.rename({'gps_time': 'slow_time'})
         l = l.set_coords(['slow_time'])
@@ -241,10 +227,13 @@ def get_layers(ds: xr.Dataset) -> dict:
         # Merge the twtt field into ds using the slow_time dimension from ds and
         # interpolating the layer data to match
         l = l.interp(slow_time=ds['slow_time'], method='linear')
-        ds = xr.merge([ds, l], compat='override')
+        
+        layers[layer_id] = l
+        #ds = xr.merge([ds, l], compat='override')
 
+    return layers
         
 
-    return ds
+    #return ds
     
 
