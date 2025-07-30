@@ -1,0 +1,4 @@
+stac_catalog/
+*.json
+*.parquet
+*.nc

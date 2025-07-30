@@ -26,7 +26,7 @@ def apply_cf_compliant_attrs(ds):
     # Define CF-compliant attributes for coordinates
     coordinate_attrs = {
         'slow_time': {
-            'units': 'seconds since 1970-01-01T00:00:00Z',
+            #'units': 'seconds since 1970-01-01T00:00:00Z',
             'standard_name': 'time',
             'long_name': 'slow time',
             'comment': 'Time coordinate for radar pulse transmission along flight track'
@@ -35,7 +35,7 @@ def apply_cf_compliant_attrs(ds):
             'units': 's',
             'standard_name': 'time',
             'long_name': 'two-way travel time',
-            'comment': 'Two-way travel time from radar to target and back, used to determine range/depth'
+            'comment': 'Two-way travel time from radar to target and back'
         }
     }
     
@@ -45,23 +45,19 @@ def apply_cf_compliant_attrs(ds):
             'units': 's',
             'long_name': 'bottom surface two-way travel time',
             'comment': 'Two-way travel time to detected bottom surface. NaN where bottom not detected.',
-            'valid_min': 0.0,
             '_FillValue': np.nan
         },
         'Data': {
-            'units': '1',  # dimensionless for power/amplitude data
+            'units': '1',  # TODO: Appropriate units for radar data -- can we calibrate to watts?
             'long_name': 'radar echo power',
-            'comment': 'Calibrated radar echo power/amplitude data in linear scale',
-            'valid_min': 0.0,
-            'coordinates': 'slow_time fast_time'
+            'comment': 'Radar echo power in linear scale',
+            'coordinates': 'slow_time twtt'
         },
         'Elevation': {
             'units': 'm',
             'standard_name': 'height_above_reference_ellipsoid',
             'long_name': 'platform elevation above WGS84 ellipsoid',
-            'comment': 'GPS-derived elevation of radar platform above WGS84 reference ellipsoid',
-            'valid_min': -1000.0,
-            'valid_max': 10000.0
+            'comment': 'GPS-derived elevation of radar platform above WGS84 reference ellipsoid'
         },
         'Heading': {
             'units': 'radians',
@@ -69,7 +65,8 @@ def apply_cf_compliant_attrs(ds):
             'long_name': 'platform heading angle',
             'comment': 'Platform heading angle in radians from north, clockwise positive',
             'valid_min': -np.pi,
-            'valid_max': np.pi
+            'valid_max': np.pi,
+            'valid_range': [-np.pi, np.pi],
         },
         'Latitude': {
             'units': 'degrees_north',
@@ -77,7 +74,8 @@ def apply_cf_compliant_attrs(ds):
             'long_name': 'platform latitude',
             'comment': 'GPS-derived latitude of radar platform in WGS84 coordinate system',
             'valid_min': -90.0,
-            'valid_max': 90.0
+            'valid_max': 90.0,
+            'valid_range': [-90.0, 90.0]
         },
         'Longitude': {
             'units': 'degrees_east',
@@ -85,7 +83,8 @@ def apply_cf_compliant_attrs(ds):
             'long_name': 'platform longitude',
             'comment': 'GPS-derived longitude of radar platform in WGS84 coordinate system',
             'valid_min': -180.0,
-            'valid_max': 180.0
+            'valid_max': 180.0,
+            'valid_range': [-180.0, 180.0]
         },
         'Pitch': {
             'units': 'radians',
@@ -93,7 +92,8 @@ def apply_cf_compliant_attrs(ds):
             'long_name': 'platform pitch angle',
             'comment': 'Platform pitch angle in radians, positive nose up',
             'valid_min': -np.pi/2,
-            'valid_max': np.pi/2
+            'valid_max': np.pi/2,
+            'valid_range': [-np.pi/2, np.pi/2]
         },
         'Roll': {
             'units': 'radians',
@@ -101,7 +101,8 @@ def apply_cf_compliant_attrs(ds):
             'long_name': 'platform roll angle',
             'comment': 'Platform roll angle in radians, positive right wing down',
             'valid_min': -np.pi,
-            'valid_max': np.pi
+            'valid_max': np.pi,
+            'valid_range': [-np.pi, np.pi]
         },
         'Surface': {
             'units': 's',
