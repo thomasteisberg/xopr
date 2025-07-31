@@ -1,4 +1,4 @@
-from typing import Iterable
+from typing import Iterable, Optional
 import xarray as xr
 import fsspec
 import pandas as pd
@@ -49,7 +49,12 @@ class OPRConnection:
             The loaded radar frame as an xarray Dataset.
         """
         
-        file = fsspec.open_local(f"{self.fsspec_url_prefix}{url}", filecache=self.fsspec_cache_kwargs)
+        if self.fsspec_url_prefix:
+            file = fsspec.open_local(f"{self.fsspec_url_prefix}{url}", filecache=self.fsspec_cache_kwargs)
+            
+        else:
+            file = fsspec.open_local(f"simplecache::{url}", **self.fsspec_cache_kwargs)
+
         ds = xr.open_dataset(file, engine='h5netcdf', phony_dims='sort')
 
         # Re-arrange variables to provide useful dimensions and coordinates
