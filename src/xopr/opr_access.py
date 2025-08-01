@@ -125,46 +125,200 @@ class OPRConnection:
 
         return ds
 
-    def query_stac_collection(self, collection_id: str) -> list:
+    def query_stac_collection(self, collection_id: str, exclude_geometry: bool = False) -> list:
         """
-        Query STAC API to get all items in a collection.
+        Query STAC API to get all items in a collection using the /search endpoint.
 
         Parameters
         ----------
         collection_id : str
             The ID of the STAC collection to query.
+        exclude_geometry : bool, optional
+            If True, exclude geometry and bbox fields from the response to reduce size.
 
         Returns
         -------
         list
             List of STAC item dictionaries containing metadata and asset URLs.
         """
-        # Get collection items via STAC API
-        items_url = f"{self.stac_api_url}/collections/{collection_id}/items"
+        # Use STAC /search endpoint instead of /collections endpoint
+        search_url = f"{self.stac_api_url}/search"
         
         all_items = []
-        next_url = items_url
+        limit = 500  # Use a reasonable batch size
+        next_url = None
+        previous_feature_ids = None
+        current_offset = 0  # Track offset manually for POST requests
         
-        while next_url:
+        while True:
             try:
-                response = requests.get(next_url)
+                if exclude_geometry:
+                    # When excluding geometry, always use POST requests to ensure proper field exclusion
+                    current_url = search_url
+                    search_body = {
+                        'collections': [collection_id],
+                        'limit': limit,
+                        'fields': {
+                            'exclude': ['geometry', 'bbox']
+                        }
+                    }
+                    
+                    # Add offset for pagination (manual tracking since server doesn't provide proper next URLs for POST)
+                    if current_offset > 0:
+                        search_body['offset'] = current_offset
+
+                    print(f"Querying STAC API: {current_url} with POST body: {search_body}")
+                    response = requests.post(current_url, json=search_body)
+                else:
+                    # When not excluding geometry, use GET requests (more efficient)
+                    if next_url:
+                        current_url = next_url
+                        params = {}  # Next URL should already contain all necessary parameters
+                    else:
+                        current_url = search_url
+                        params = {
+                            'collections': collection_id,
+                            'limit': limit
+                        }
+
+                    print(f"Querying STAC API: {current_url} with params: {params}")
+                    response = requests.get(current_url, params=params)
                 response.raise_for_status()
                 data = response.json()
                 
                 # Add items from this page
-                if 'features' in data:
-                    all_items.extend(data['features'])
+                features = data.get('features', [])
+                print(f"Found {len(features)} features in this page.")
+                if not features:
+                    # No more items, break the loop
+                    break
                 
-                # Check for next page
+                # Check for duplicate features from previous page
+                current_feature_ids = {feature.get('id') for feature in features}
+                if previous_feature_ids is not None and current_feature_ids == previous_feature_ids:
+                    raise RuntimeError(f"STAC API returned duplicate features across pages. "
+                                     f"This indicates a server pagination bug. "
+                                     f"Collection: {collection_id}, Feature IDs: {current_feature_ids}")
+                
+                all_items.extend(features)
+                previous_feature_ids = current_feature_ids
+                
+                if exclude_geometry:
+                    # For POST requests, manually handle pagination since server doesn't provide proper next URLs
+                    if len(features) < limit:
+                        # Received fewer features than requested, we've reached the end
+                        break
+                    else:
+                        # Increment offset for next request
+                        current_offset += limit
+                else:
+                    # For GET requests, use the server's next link
+                    next_url = None
+                    if 'links' in data:
+                        for link in data['links']:
+                            if link.get('rel') == 'next':
+                                next_url = link.get('href')
+                                print(f"Next page URL found: {next_url}")
+                                break
+                    
+                    # If no next link, we've reached the end
+                    if not next_url:
+                        break
+                            
+            except requests.exceptions.RequestException as e:
+                print(f"Error querying STAC API: {e}")
+                break
+            except json.JSONDecodeError as e:
+                print(f"Error parsing STAC API response: {e}")
+                break
+        
+        return all_items
+
+    def query_flight_items(self, collection_id: str, date_str: str, flight_num: int) -> list:
+        """
+        Query STAC API for items from a specific flight using CQL2 filtering.
+
+        Parameters
+        ----------
+        collection_id : str
+            The ID of the STAC collection to query.
+        date_str : str
+            The flight date in YYYYMMDD format.
+        flight_num : int
+            The flight number.
+
+        Returns
+        -------
+        list
+            List of STAC item dictionaries for the specified flight.
+        """
+        search_url = f"{self.stac_api_url}/search"
+        
+        all_items = []
+        next_url = None
+        previous_feature_ids = None
+        
+        while True:
+            try:
+                # Build CQL2 filter for specific flight
+                filter_condition = {
+                    "op": "and",
+                    "args": [
+                        {
+                            "op": "=",
+                            "args": [{"property": "opr:date"}, date_str]
+                        },
+                        {
+                            "op": "=", 
+                            "args": [{"property": "opr:flight"}, flight_num]
+                        }
+                    ]
+                }
+                
+                # Use the next URL if available, otherwise build search request
+                if next_url:
+                    current_url = next_url
+                    # For next URLs, make a GET request (they should contain all parameters)
+                    response = requests.get(current_url)
+                else:
+                    # Initial request with POST and CQL2 filter
+                    search_body = {
+                        'collections': [collection_id],
+                        'limit': 100,
+                        'filter': filter_condition
+                    }
+                    response = requests.post(search_url, json=search_body)
+                
+                response.raise_for_status()
+                data = response.json()
+                
+                # Add items from this page
+                features = data.get('features', [])
+                if not features:
+                    break
+                
+                # Check for duplicate features from previous page
+                current_feature_ids = {feature.get('id') for feature in features}
+                if previous_feature_ids is not None and current_feature_ids == previous_feature_ids:
+                    raise RuntimeError(f"STAC API returned duplicate features across pages. "
+                                     f"Collection: {collection_id}, Date: {date_str}, Flight: {flight_num}")
+                
+                all_items.extend(features)
+                previous_feature_ids = current_feature_ids
+                
+                # Look for next link
                 next_url = None
                 if 'links' in data:
                     for link in data['links']:
                         if link.get('rel') == 'next':
                             next_url = link.get('href')
                             break
+                
+                if not next_url:
+                    break
                             
             except requests.exceptions.RequestException as e:
-                print(f"Error querying STAC API: {e}")
+                print(f"Error querying STAC API for flight {date_str}_{flight_num:02d}: {e}")
                 break
             except json.JSONDecodeError as e:
                 print(f"Error parsing STAC API response: {e}")
@@ -210,8 +364,8 @@ class OPRConnection:
         list
             List of flight dictionaries with flight metadata.
         """
-        # Query STAC API for all items in collection
-        items = self.query_stac_collection(collection_id)
+        # Query STAC API for all items in collection (exclude geometry for better performance)
+        items = self.query_stac_collection(collection_id, exclude_geometry=True)
         
         if not items:
             print(f"No items found in collection '{collection_id}'")
@@ -270,16 +424,8 @@ class OPRConnection:
             print(f"Invalid flight_id format '{flight_id}'. Expected format: YYYYMMDD_NN")
             return []
         
-        # Query STAC API for collection items
-        items = self.query_stac_collection(collection_id)
-        
-        # Filter items for this specific flight
-        flight_items = []
-        for item in items:
-            properties = item.get('properties', {})
-            if (properties.get('opr:date') == date_str and 
-                properties.get('opr:flight') == flight_num):
-                flight_items.append(item)
+        # Query STAC API with CQL2 filter for specific flight
+        flight_items = self.query_flight_items(collection_id, date_str, flight_num)
         
         if not flight_items:
             print(f"No items found for flight '{flight_id}' in collection '{collection_id}'")
