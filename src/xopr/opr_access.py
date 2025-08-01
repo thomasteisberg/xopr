@@ -10,7 +10,10 @@ from xopr.cf_units import apply_cf_compliant_attrs
 import xopr.ops_api
 
 class OPRConnection:
-    def __init__(self, collection_url: str = "https://data.cresis.ku.edu/data/", cache_dir: str = None):
+    def __init__(self,
+                 collection_url: str = "https://data.cresis.ku.edu/data/",
+                 cache_dir: str = None,
+                 stac_api_url: str = "https://opr-stac-fastapi-974574526248.us-west1.run.app"):
         """
         Initialize the OPRConnection with a collection URL and optional cache directory.
 
@@ -20,9 +23,12 @@ class OPRConnection:
             The base URL for the OPR data collection.
         cache_dir : str, optional
             Directory to cache downloaded data.
+        stac_api_url : str, optional
+            The URL of the STAC API to use for metadata and item retrieval.
         """
         self.collection_url = collection_url
         self.cache_dir = cache_dir
+        self.stac_api_url = stac_api_url
 
         self.fsspec_cache_kwargs = {}
         self.fsspec_url_prefix = ''
@@ -118,6 +124,215 @@ class OPRConnection:
                     ds.attrs['funder_text'] = result_data['funding_sources']
 
         return ds
+
+    def query_stac_collection(self, collection_id: str) -> list:
+        """
+        Query STAC API to get all items in a collection.
+
+        Parameters
+        ----------
+        collection_id : str
+            The ID of the STAC collection to query.
+
+        Returns
+        -------
+        list
+            List of STAC item dictionaries containing metadata and asset URLs.
+        """
+        # Get collection items via STAC API
+        items_url = f"{self.stac_api_url}/collections/{collection_id}/items"
+        
+        all_items = []
+        next_url = items_url
+        
+        while next_url:
+            try:
+                response = requests.get(next_url)
+                response.raise_for_status()
+                data = response.json()
+                
+                # Add items from this page
+                if 'features' in data:
+                    all_items.extend(data['features'])
+                
+                # Check for next page
+                next_url = None
+                if 'links' in data:
+                    for link in data['links']:
+                        if link.get('rel') == 'next':
+                            next_url = link.get('href')
+                            break
+                            
+            except requests.exceptions.RequestException as e:
+                print(f"Error querying STAC API: {e}")
+                break
+            except json.JSONDecodeError as e:
+                print(f"Error parsing STAC API response: {e}")
+                break
+        
+        return all_items
+
+    def get_collections(self) -> list:
+        """
+        Get list of available STAC collections.
+
+        Returns
+        -------
+        list
+            List of collection dictionaries with metadata.
+        """
+        collections_url = f"{self.stac_api_url}/collections"
+        
+        try:
+            response = requests.get(collections_url)
+            response.raise_for_status()
+            data = response.json()
+            return data.get('collections', [])
+            
+        except requests.exceptions.RequestException as e:
+            print(f"Error querying STAC API for collections: {e}")
+            return []
+        except json.JSONDecodeError as e:
+            print(f"Error parsing STAC API response: {e}")
+            return []
+
+    def get_flights(self, collection_id: str) -> list:
+        """
+        Get list of available flights within a collection/season.
+
+        Parameters
+        ----------
+        collection_id : str
+            The ID of the STAC collection to query.
+
+        Returns
+        -------
+        list
+            List of flight dictionaries with flight metadata.
+        """
+        # Query STAC API for all items in collection
+        items = self.query_stac_collection(collection_id)
+        
+        if not items:
+            print(f"No items found in collection '{collection_id}'")
+            return []
+        
+        # Group items by flight (opr:date + opr:flight)
+        flights = {}
+        for item in items:
+            properties = item.get('properties', {})
+            date = properties.get('opr:date')
+            flight_num = properties.get('opr:flight')
+            
+            if date and flight_num is not None:
+                flight_key = f"{date}_{flight_num:02d}"
+                
+                if flight_key not in flights:
+                    flights[flight_key] = {
+                        'flight_id': flight_key,
+                        'date': date,
+                        'flight_number': flight_num,
+                        'collection': collection_id,
+                        'segments': [],
+                        'item_count': 0
+                    }
+                
+                flights[flight_key]['segments'].append(properties.get('opr:segment'))
+                flights[flight_key]['item_count'] += 1
+        
+        # Sort flights by date and flight number
+        flight_list = list(flights.values())
+        flight_list.sort(key=lambda x: (x['date'], x['flight_number']))
+        
+        return flight_list
+
+    def load_flight(self, collection_id: str, flight_id: str) -> list:
+        """
+        Load all radar frames from a specific flight.
+
+        Parameters
+        ----------
+        collection_id : str
+            The ID of the STAC collection containing the flight.
+        flight_id : str
+            The flight ID (format: YYYYMMDD_NN, e.g., '20161014_03').
+
+        Returns
+        -------
+        list
+            List of xarray Datasets, one for each frame in the flight, sorted by segment.
+        """
+        # Parse flight_id to get date and flight number
+        try:
+            date_str, flight_num_str = flight_id.split('_')
+            flight_num = int(flight_num_str)
+        except ValueError:
+            print(f"Invalid flight_id format '{flight_id}'. Expected format: YYYYMMDD_NN")
+            return []
+        
+        # Query STAC API for collection items
+        items = self.query_stac_collection(collection_id)
+        
+        # Filter items for this specific flight
+        flight_items = []
+        for item in items:
+            properties = item.get('properties', {})
+            if (properties.get('opr:date') == date_str and 
+                properties.get('opr:flight') == flight_num):
+                flight_items.append(item)
+        
+        if not flight_items:
+            print(f"No items found for flight '{flight_id}' in collection '{collection_id}'")
+            return []
+        
+        # Sort items by segment number
+        flight_items.sort(key=lambda x: x.get('properties', {}).get('opr:segment', 0))
+        
+        print(f"Loading {len(flight_items)} frames from flight '{flight_id}'...")
+        
+        # Load each frame
+        frames = []
+        for i, item in enumerate(flight_items):
+            try:
+                # Get data asset URL
+                data_asset = item.get('assets', {}).get('data')
+                if not data_asset:
+                    print(f"Warning: No data asset found for item {item.get('id', 'unknown')}")
+                    continue
+                
+                url = data_asset.get('href')
+                if not url:
+                    print(f"Warning: No href found for data asset in item {item.get('id', 'unknown')}")
+                    continue
+                
+                # Load the frame
+                frame = self.load_frame(url)
+                
+                # Add STAC metadata to frame attributes
+                frame.attrs['stac_collection'] = collection_id
+                frame.attrs['stac_item_id'] = item.get('id')
+                frame.attrs['flight_id'] = flight_id
+                
+                # Add OPR properties if available
+                properties = item.get('properties', {})
+                if 'opr:date' in properties:
+                    frame.attrs['opr_date'] = properties['opr:date']
+                if 'opr:flight' in properties:
+                    frame.attrs['opr_flight'] = properties['opr:flight']
+                if 'opr:segment' in properties:
+                    frame.attrs['opr_segment'] = properties['opr:segment']
+                
+                frames.append(frame)
+                
+                if (i + 1) % 5 == 0:
+                    print(f"  Loaded {i + 1}/{len(flight_items)} frames...")
+                    
+            except Exception as e:
+                print(f"Error loading frame for item {item.get('id', 'unknown')}: {e}")
+                continue
+        
+        print(f"Successfully loaded {len(frames)} frames from flight '{flight_id}'")
+        return frames
 
 
 def get_ror_display_name(ror_id: str) -> Optional[str]:
