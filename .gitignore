@@ -243,3 +243,10 @@ cython_debug/
 
 # Hatch-VCS
 _version.py
+
+# MyST build outputs
+_build
+
+# uv
+.venv/
+uv.lock

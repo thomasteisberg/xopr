@@ -2,16 +2,5 @@
 
 ## Overview
 
-Open Polar Radar data access tools for Xarray
+Open Polar Radar data access tools nicely ingrated with the Python data ecosystem
 
-[API Documentation](./api/modules.rst)
-
-## Copyright
-
-- Copyright © 2025 Thomas Teisberg, Shane Grigsby.
-- Free software distributed under the MIT License.
-
-```{toctree}
-:hidden:
-./api/modules.rst
-```

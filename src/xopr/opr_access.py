@@ -94,6 +94,8 @@ class OPRConnection:
         ds = ds.swap_dims({'twtt_idx': 'twtt'})
         ds = ds.swap_dims({'slow_time_idx': 'slow_time'})
 
+        # Add the source URL as an attribute
+        ds.attrs['source_url'] = url
 
         # Apply CF-compliant attributes
         ds = apply_cf_compliant_attrs(ds)
@@ -167,7 +169,7 @@ class OPRConnection:
                     if current_offset > 0:
                         search_body['offset'] = current_offset
 
-                    print(f"Querying STAC API: {current_url} with POST body: {search_body}")
+                    #print(f"Querying STAC API: {current_url} with POST body: {search_body}")
                     response = requests.post(current_url, json=search_body)
                 else:
                     # When not excluding geometry, use GET requests (more efficient)
@@ -181,14 +183,14 @@ class OPRConnection:
                             'limit': limit
                         }
 
-                    print(f"Querying STAC API: {current_url} with params: {params}")
+                    #print(f"Querying STAC API: {current_url} with params: {params}")
                     response = requests.get(current_url, params=params)
                 response.raise_for_status()
                 data = response.json()
                 
                 # Add items from this page
                 features = data.get('features', [])
-                print(f"Found {len(features)} features in this page.")
+                #print(f"Found {len(features)} features in this page.")
                 if not features:
                     # No more items, break the loop
                     break

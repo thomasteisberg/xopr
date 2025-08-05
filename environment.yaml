@@ -3,11 +3,9 @@ channels:
   - conda-forge
 dependencies:
   - numpy
-  - scipy
   - xarray
   - dask
   - h5netcdf
-  - h5py
   - requests
   - matplotlib
   - copier
@@ -20,13 +18,17 @@ dependencies:
   - hvplot
   - jupyter_bokeh
   - geoviews
-  - geopandas
   - pystac
-  - pystac_client
-  - stac-geoparquet
   - shapely
+  - geopandas
+  - h5py
   - pip
+  - scipy
+  - stac-geoparquet
+  - rustac
+  - hatch-conda
   - pip:
     - pystac_client
     - stac_asset
     - stac-fastapi-geoparquet[serve]
+    - jupyter-book==2.*
