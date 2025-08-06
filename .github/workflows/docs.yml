@@ -16,6 +16,9 @@ concurrency:
   group: "pages"
   cancel-in-progress: false
 
+env:
+  BASE_URL: /xopr
+
 jobs:
   build:
     runs-on: ubuntu-latest
