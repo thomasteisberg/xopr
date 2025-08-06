@@ -18,6 +18,5 @@ project:
 site:
   template: book-theme
   options:
-    baseurl: /xopr
   #   favicon: favicon.ico
   #   logo: site_logo.png
