@@ -10,7 +10,7 @@ import pystac
 import shapely
 from shapely.geometry import mapping
 
-from .metadata import extract_item_metadata, discover_campaigns, discover_flight_lines
+from .metadata import extract_item_metadata, discover_campaigns, discover_flight_lines, get_mat_file_type
 
 
 def create_catalog(
@@ -46,7 +46,7 @@ def create_collection(
     collection_id: str,
     description: str,
     extent: pystac.Extent,
-    license: str = "CC-BY-SA-4.0",
+    license: str = "",
     stac_extensions: Optional[List[str]] = None
 ) -> pystac.Collection:
     """
@@ -119,11 +119,11 @@ def create_item(
     return item
 
 
-def create_item_from_flight_data(
+def create_items_from_flight_data(
     flight_data: Dict[str, Any],
     base_url: str = "https://data.cresis.ku.edu/data/rds/",
     campaign_name: str = "",
-    data_product: str = "CSARP_standard"
+    primary_data_product: str = "CSARP_standard"
 ) -> List[pystac.Item]:
     """
     Create STAC items from flight line data.
@@ -139,29 +139,31 @@ def create_item_from_flight_data(
     """
     items = []
     flight_id = flight_data['flight_id']
+
+    primary_data_files = flight_data['data_files'][primary_data_product].values()
     
-    for mat_file_path in flight_data['mat_files']:
-        mat_path = Path(mat_file_path)
+    for data_file_path in primary_data_files:
+        data_path = Path(data_file_path)
         
         try:
             # Extract metadata from MAT file only (no CSV needed)
-            metadata = extract_item_metadata(mat_path)
+            metadata = extract_item_metadata(data_path)
         except Exception as e:
-            print(f"Warning: Failed to extract metadata for {mat_file_path}: {e}")
+            print(f"Warning: Failed to extract metadata for {data_path}: {e}")
             continue
-        
-        item_id = f"{data_product.replace('_', '_')}_{mat_path.stem}"
+
+        item_id = f"{data_path.stem}"
         
         geometry = mapping(metadata['geom'])
         bbox = list(metadata['bbox'].bounds)
         datetime = metadata['date']
-        
-        rel_mat_path = f"{campaign_name}/{data_product}/{flight_id}/{mat_path.name}"
+
+        rel_mat_path = f"{campaign_name}/{primary_data_product}/{flight_id}/{data_path.name}"
         data_href = base_url + rel_mat_path
         
         # Extract segment number from MAT filename (e.g., "Data_20161014_03_001.mat" -> "001")
-        segment_match = re.search(r'_(\d+)\.mat$', mat_path.name)
-        segment = segment_match.group(1) if segment_match else "001"
+        segment_match = re.search(r'_(\d+)\.mat$', data_path.name)
+        segment = segment_match.group(1)
         
         # Extract date and flight number from flight_id (e.g., "20161014_03" -> "20161014", "03")
         # Split on underscore to avoid assuming fixed lengths
@@ -176,12 +178,19 @@ def create_item_from_flight_data(
             'opr:segment': int(segment)
         }
         
-        assets = {
-            'data': pystac.Asset(
-                href=data_href,
-                media_type=pystac.MediaType.HDF5
-            )
-        }
+        assets = {}
+
+        for data_product_type in flight_data['data_files'].keys():
+            if data_path.name in flight_data['data_files'][data_product_type]:
+                product_path = flight_data['data_files'][data_product_type][data_path.name]
+                file_type = get_mat_file_type(product_path)
+                print(f"[{file_type}] {product_path}")
+                assets[data_product_type] = pystac.Asset(
+                    href=base_url + f"{campaign_name}/{data_product_type}/{flight_id}/{data_path.name}",
+                    media_type=file_type
+                )
+                if data_product_type == primary_data_product:
+                    assets['data'] = assets[data_product_type]
         
         thumb_href = base_url + f"{campaign_name}/images/{flight_id}/{flight_id}_{segment}_2echo_picks.jpg"
         assets['thumbnails'] = pystac.Asset(
@@ -252,81 +261,3 @@ def build_collection_extent(items: List[pystac.Item]) -> pystac.Extent:
         temporal_extent = pystac.TemporalExtent(intervals=[[None, None]])
     
     return pystac.Extent(spatial=spatial_extent, temporal=temporal_extent)
-
-
-def build_catalog_from_data_root(
-    data_root: Union[str, Path],
-    output_path: Union[str, Path],
-    catalog_id: str = "OPR",
-    data_product: str = "CSARP_standard",
-    base_url: str = "https://data.cresis.ku.edu/data/rds/"
-) -> pystac.Catalog:
-    """
-    Build a complete STAC catalog from OPR data directory.
-    
-    Args:
-        data_root: Root directory containing campaign subdirectories
-        output_path: Directory to save the catalog
-        catalog_id: Unique identifier for the root catalog
-        data_product: Data product to process (default: "CSARP_standard")
-        base_url: Base URL for constructing asset hrefs
-        
-    Returns:
-        pystac.Catalog: Complete catalog with collections and items
-    """
-    data_root = Path(data_root)
-    output_path = Path(output_path)
-    
-    catalog = create_catalog(catalog_id=catalog_id)
-    campaigns = discover_campaigns(data_root)
-    
-    for campaign in campaigns:
-        campaign_path = Path(campaign['path'])
-        campaign_name = campaign['name']
-        
-        print(f"Processing campaign: {campaign_name}")
-        
-        try:
-            flight_lines = discover_flight_lines(campaign_path, data_product)
-        except FileNotFoundError as e:
-            print(f"Warning: Skipping {campaign_name}: {e}")
-            continue
-        
-        if not flight_lines:
-            print(f"Warning: No flight lines found for {campaign_name}")
-            continue
-        
-        collection_items = []
-        
-        for flight_data in flight_lines:
-            try:
-                items = create_item_from_flight_data(
-                    flight_data, base_url, campaign_name, data_product
-                )
-                collection_items.extend(items)
-            except Exception as e:
-                print(f"Warning: Failed to process flight {flight_data['flight_id']}: {e}")
-                continue
-        
-        if collection_items:
-            extent = build_collection_extent(collection_items)
-            
-            collection = create_collection(
-                collection_id=campaign_name,
-                description=f"{campaign['year']} {campaign['aircraft']} flights over {campaign['location']}",
-                extent=extent
-            )
-            
-            collection.add_items(collection_items)
-            catalog.add_child(collection)
-            
-            print(f"Added collection {campaign_name} with {len(collection_items)} items")
-    
-    output_path.mkdir(parents=True, exist_ok=True)
-    catalog.normalize_and_save(
-        root_href=str(output_path),
-        catalog_type=pystac.CatalogType.SELF_CONTAINED
-    )
-    
-    print(f"Catalog saved to {output_path}")
-    return catalog

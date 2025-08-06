@@ -31,7 +31,7 @@ def apply_cf_compliant_attrs(ds):
             'long_name': 'slow time',
             'comment': 'Time coordinate for radar pulse transmission along flight track'
         },
-        'fast_time': {
+        'twtt': {
             'units': 's',
             'standard_name': 'time',
             'long_name': 'two-way travel time',

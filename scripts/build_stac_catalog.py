@@ -14,8 +14,8 @@ import sys
 import pystac
 import stac_geoparquet
 from xopr.stac import (
-    build_catalog_from_data_root, create_catalog, create_collection, 
-    build_collection_extent, create_item_from_flight_data,
+    create_catalog, create_collection, 
+    build_collection_extent, create_items_from_flight_data,
     discover_campaigns, discover_flight_lines
 )
 
@@ -65,6 +65,7 @@ def build_limited_catalog(
     output_path: Path,
     catalog_id: str = "OPR",
     data_product: str = "CSARP_standard",
+    extra_data_products: list[str] = ['CSARP_layer', 'CSARP_qlook'],
     base_url: str = "https://data.cresis.ku.edu/data/rds/",
     max_items: int = 10,
     campaign_filter: list = None
@@ -86,7 +87,8 @@ def build_limited_catalog(
         print(f"Processing campaign: {campaign_name}")
         
         try:
-            flight_lines = discover_flight_lines(campaign_path, data_product)
+            flight_lines = discover_flight_lines(campaign_path, data_product,
+                                                 extra_data_products=extra_data_products)
         except FileNotFoundError as e:
             print(f"Warning: Skipping {campaign_name}: {e}")
             continue
@@ -102,7 +104,7 @@ def build_limited_catalog(
         
         for flight_data in flight_lines:
             try:
-                items = create_item_from_flight_data(
+                items = create_items_from_flight_data(
                     flight_data, base_url, campaign_name, data_product
                 )
                 # Add all items from flight (or limit if specified)
@@ -171,6 +173,103 @@ def export_to_geoparquet(catalog: pystac.Catalog, output_file: Path) -> None:
     ndjson_file.unlink()
     
     print(f"   ✅ Geoparquet saved: {output_file}")
+    print(f"   File size: {output_file.stat().st_size / 1024:.1f} KB")
+
+
+def export_collections_to_separate_parquet(catalog: pystac.Catalog, output_dir: Path) -> None:
+    """
+    Export each collection to a separate geoparquet file for stac-fastapi-geoparquet.
+    
+    Args:
+        catalog: STAC catalog to export
+        output_dir: Output directory for parquet files
+    """
+    print(f"\n📦 Exporting collections to separate geoparquet files: {output_dir}")
+    
+    collections = list(catalog.get_collections())
+    if not collections:
+        print("   No collections found to export")
+        return
+    
+    for collection in collections:
+        collection_items = list(collection.get_items())
+        if not collection_items:
+            print(f"   Skipping {collection.id}: no items")
+            continue
+            
+        # Create output file for this collection
+        parquet_file = output_dir / f"{collection.id}.parquet"
+        ndjson_file = parquet_file.with_suffix('.json')
+        
+        print(f"   Processing collection: {collection.id} ({len(collection_items)} items)")
+        
+        # Write collection items to NDJSON
+        with open(ndjson_file, 'w') as f:
+            for item in collection_items:
+                json.dump(item.to_dict(), f, separators=(",", ":"))
+                f.write("\n")
+        
+        # Convert to parquet
+        stac_geoparquet.arrow.parse_stac_ndjson_to_parquet(str(ndjson_file), str(parquet_file))
+        
+        # Clean up temporary file
+        ndjson_file.unlink()
+        
+        print(f"   ✅ {collection.id}.parquet saved ({parquet_file.stat().st_size / 1024:.1f} KB)")
+    
+    print(f"   Exported {len(collections)} collections to separate parquet files")
+
+
+def export_collections_json(catalog: pystac.Catalog, output_file: Path) -> None:
+    """
+    Export collections metadata to collections.json for stac-fastapi-geoparquet.
+    
+    Args:
+        catalog: STAC catalog to export
+        output_file: Output collections.json file path
+    """
+    print(f"\n📄 Exporting collections metadata: {output_file}")
+    
+    collections = list(catalog.get_collections())
+    if not collections:
+        print("   No collections found to export")
+        return
+    
+    collections_data = []
+    
+    for collection in collections:
+        # Get basic collection info
+        collection_dict = collection.to_dict()
+        
+        # Keep essential fields and add required STAC fields
+        clean_collection = {
+            'type': 'Collection',
+            'stac_version': collection_dict.get('stac_version', '1.1.0'),
+            'id': collection.id,
+            'description': collection.description or f"Collection {collection.id}",
+            'license': collection_dict.get('license', 'other'),
+            'extent': collection_dict.get('extent'),
+            'links': [],  # Empty links array as per stac-fastapi-geoparquet format
+            'assets': {
+                'data': {
+                    'href': f"./{collection.id}.parquet",
+                    'type': 'application/vnd.apache.parquet'
+                }
+            }
+        }
+        
+        # Add title if it exists
+        if 'title' in collection_dict:
+            clean_collection['title'] = collection_dict['title']
+        
+        collections_data.append(clean_collection)
+    
+    # Write collections.json
+    with open(output_file, 'w') as f:
+        json.dump(collections_data, f, indent=2, separators=(",", ": "), default=str)
+    
+    print(f"   ✅ Collections JSON saved: {output_file}")
+    print(f"   Contains {len(collections_data)} collections")
     print(f"   File size: {output_file.stat().st_size / 1024:.1f} KB")
 
 
@@ -258,14 +357,24 @@ def main():
         help="Base URL for asset hrefs"
     )
     parser.add_argument(
-        "--no-geoparquet",
+        "--combined-geoparquet",
         action="store_true",
-        help="Skip geoparquet export"
+        help="Also export combined geoparquet file (in addition to separate collection files)"
     )
     parser.add_argument(
         "--no-json-catalog",
         action="store_true",
         help="Skip JSON catalog export"
+    )
+    parser.add_argument(
+        "--no-separate-collections",
+        action="store_true",
+        help="Skip separate parquet files per collection (default is to create them)"
+    )
+    parser.add_argument(
+        "--no-collections-json",
+        action="store_true",
+        help="Skip collections.json metadata file (default is to create it)"
     )
     
     args = parser.parse_args()
@@ -301,8 +410,17 @@ def main():
         print("=" * 50)
         print_catalog_structure(catalog)
         
-        # Export to geoparquet
-        if not args.no_geoparquet:
+        # Export separate parquet files per collection (default, stac-fastapi-geoparquet format)
+        if not args.no_separate_collections:
+            export_collections_to_separate_parquet(catalog, args.output_dir)
+        
+        # Export collections.json metadata (default, stac-fastapi-geoparquet format)
+        if not args.no_collections_json:
+            collections_json_file = args.output_dir / "collections.json"
+            export_collections_json(catalog, collections_json_file)
+        
+        # Export to combined geoparquet (optional, traditional format)
+        if args.combined_geoparquet:
             parquet_file = args.output_dir / "opr-stac.parquet"
             export_to_geoparquet(catalog, parquet_file)
         
@@ -313,8 +431,12 @@ def main():
         
         print(f"\n🎉 Complete! STAC catalog ready for use.")
         print(f"   Catalog JSON: {args.output_dir}/catalog.json")
-        if not args.no_geoparquet:
-            print(f"   Geoparquet: {args.output_dir}/opr-stac.parquet")
+        if not args.no_separate_collections:
+            print(f"   Collection Parquets: {args.output_dir}/<collection_id>.parquet")
+        if not args.no_collections_json:
+            print(f"   Collections JSON: {args.output_dir}/collections.json")
+        if args.combined_geoparquet:
+            print(f"   Combined Geoparquet: {args.output_dir}/opr-stac.parquet")
         if not args.no_json_catalog:
             print(f"   JSON Catalog: {args.output_dir}/opr-stac-catalog.json")
         

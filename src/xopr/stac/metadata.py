@@ -15,7 +15,26 @@ import shapely
 from shapely.geometry import LineString, Point, box
 
 
-def extract_item_metadata(mat_file_path: Path) -> Dict[str, Any]:
+def get_mat_file_type(file_path: Path) -> str:
+    """
+    Figure out if a MAT file is in HDF5 format or older MATLAB format.
+
+    Args:
+        file_path: Path to the MAT file
+    
+    Returns:
+        str: 'application/x-hdf5' if HDF5, 'application/x-matlab-data' if older MATLAB format
+    """
+
+    try:
+        f = h5py.File(file_path, 'r')
+        return 'application/x-hdf5'
+    except:
+        f = scipy.io.loadmat(file_path, mat_dtype=True)
+        return 'application/x-matlab-data'
+
+
+def extract_item_metadata(mat_file_path: Path, max_geometry_path_length: int = 1000) -> Dict[str, Any]:
     """
     Extract spatial and temporal metadata from MAT/HDF5 file.
     
@@ -72,6 +91,12 @@ def extract_item_metadata(mat_file_path: Path) -> Dict[str, Any]:
             
             if latitude is None or longitude is None:
                 raise KeyError(f"Required coordinate fields not found in {mat_file_path}")
+            
+        # Downsample geometry if too long
+        if len(latitude) > max_geometry_path_length:
+            step = (len(latitude) // max_geometry_path_length) + 1
+            latitude = latitude[::step]
+            longitude = longitude[::step]
         
         # Create geometry from coordinates
         geom_series = gpd.GeoSeries(map(Point, zip(longitude, latitude)))
@@ -147,13 +172,14 @@ def discover_data_products(campaign_path: Path) -> List[str]:
     return sorted(products)
 
 
-def discover_flight_lines(campaign_path: Path, data_product: str = "CSARP_standard") -> List[Dict[str, str]]:
+def discover_flight_lines(campaign_path: Path, discovery_data_product: str = "CSARP_standard", extra_data_products : list = []) -> List[Dict[str, str]]:
     """
     Discover flight lines for a specific data product within a campaign.
     
     Args:
         campaign_path: Path to campaign directory
-        data_product: Data product name (default: "CSARP_standard")
+        discovery_data_product: Data product name to look for to find eligible flights (default: "CSARP_standard")
+        extra_data_products: Additional data products to link to flight lines (default: empty list)
         
     Returns:
         List of flight line metadata dictionaries with keys:
@@ -162,8 +188,8 @@ def discover_flight_lines(campaign_path: Path, data_product: str = "CSARP_standa
         - flight_num: Flight number string
         - mat_files: List of MAT file paths for this flight line
     """
-    product_path = campaign_path / data_product
-    
+    product_path = campaign_path / discovery_data_product
+
     if not product_path.exists():
         raise FileNotFoundError(f"Data product directory not found: {product_path}")
     
@@ -180,15 +206,23 @@ def discover_flight_lines(campaign_path: Path, data_product: str = "CSARP_standa
                 date_part = parts[0]
                 flight_num = parts[1]
                 
-                mat_files = list(flight_dir.glob("*.mat"))
-                
-                # Only require MAT files to exist
-                if mat_files:
+                data_files = {
+                    discovery_data_product: {f.name: str(f) for f in flight_dir.glob("*.mat")}
+                }
+
+                # Include extra data products if specified
+                for extra_product in extra_data_products:
+                    extra_product_path = campaign_path / extra_product / flight_dir.name
+                    #print(f"Looking for extra product {extra_product} in {extra_product_path}")
+                    if extra_product_path.exists():
+                        data_files[extra_product] = {f.name: str(f) for f in extra_product_path.glob("*.mat")}
+
+                if data_files:
                     flights.append({
                         'flight_id': flight_id,
                         'date': date_part,
                         'flight_num': flight_num,
-                        'mat_files': [str(f) for f in mat_files]
+                        'data_files': data_files
                     })
     
     return sorted(flights, key=lambda x: x['flight_id'])
