@@ -38,7 +38,7 @@ jobs:
     - name: Build Jupyter Book
       run: |
         cd docs
-        uv run --extra docs jupyter-book build --html
+        uv run --extra docs jupyter-book build --html --execute
 
     - name: Setup Pages
       uses: actions/configure-pages@v5
