@@ -12,22 +12,18 @@ dependencies = [
     "numpy",
     "scipy",
     "xarray",
-    "dask",
     "h5netcdf",
     "requests",
     "matplotlib",
     "aiohttp",
-    "hvplot",
-    "jupyter_bokeh",
     "geoviews",
     "pystac",
     "shapely",
-    "geopandas", 
+    "geopandas",
     "h5py",
     "scipy",
     "pystac_client",
     "stac_asset",
-    "ipykernel"
 ]
 
 [project.optional-dependencies]
@@ -37,6 +33,12 @@ stac = [
 ]
 docs = [
     "jupyter-book>=2.0.0a0",
+    "dask[distributed]",
+    "distribtued",
+    "coiled>=1.117.0",
+    "ipykernel",
+    "hvplot",
+    "jupyter_bokeh",
 ]
 
 
