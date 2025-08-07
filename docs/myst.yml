@@ -14,6 +14,7 @@ project:
     - title: Notebooks
       children:
         - file: notebooks/demo_notebook.ipynb
+        - file: notebooks/search_and_scaling.ipynb
     
 site:
   template: book-theme
