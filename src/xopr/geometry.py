@@ -1,5 +1,8 @@
 import geopandas as gpd
 import json
+from cartopy import crs
+from pyproj import Transformer
+import shapely.ops
 
 
 def get_antarctic_regions(
@@ -7,7 +10,7 @@ def get_antarctic_regions(
     regions=None, 
     subregions=None,
     type=None,
-    merge_regions=False,
+    merge_regions=True,
     measures_boundaries_url = "https://storage.googleapis.com/opr_stac/reference_geometry/measures_boundaries_4326.geojson"
 ):
     """
@@ -23,7 +26,7 @@ def get_antarctic_regions(
         SUBREGION field value(s) to filter by
     type : str or list, optional
         TYPE field value(s) to filter by
-    merge_regions : bool, default False
+    merge_regions : bool, default True
         If True, return a single merged geometry; if False, return list of geometries
     measures_boundaries_url : str, default "https://storage.googleapis.com/opr_stac/reference_geometry/measures_boundaries_4326.geojson"
         URL to the GeoJSON file containing Antarctic region boundaries
@@ -70,6 +73,9 @@ def get_antarctic_regions(
         if isinstance(type, str):
             type = [type]
         filtered = filtered[filtered['TYPE'].isin(type)]
+
+    # Filter out invalid geometries
+    filtered = filtered[filtered.is_valid]
     
     if len(filtered) == 0:
         return [] if not merge_regions else None
@@ -81,3 +87,18 @@ def get_antarctic_regions(
         return merged
     else:
         return filtered
+    
+def project_dataset(ds, target_crs):
+    projected_coords = target_crs.transform_points(
+        crs.PlateCarree(), ds['Longitude'].values, ds['Latitude'].values
+    ).T
+    ds = ds.assign_coords({
+        'x': (('slow_time'), projected_coords[0]),
+        'y': (('slow_time'), projected_coords[1])
+    })
+    return ds
+
+def project_geojson(geometry, source_crs="EPSG:4326", target_crs="EPSG:3031"):
+    transformer = Transformer.from_crs(source_crs, target_crs, always_xy=True)
+    projected_geometry = shapely.ops.transform(transformer.transform, geometry)
+    return projected_geometry

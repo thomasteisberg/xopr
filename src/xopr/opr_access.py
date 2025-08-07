@@ -4,8 +4,12 @@ import fsspec
 import pandas as pd
 import numpy as np
 import requests
+import re
 import json
 import scipy.io
+import geopandas as gpd
+import shapely
+import pystac_client
 
 from xopr.cf_units import apply_cf_compliant_attrs
 import xopr.ops_api
@@ -74,12 +78,24 @@ class OPRConnection:
         ds = apply_cf_compliant_attrs(ds)
 
         # Get the season and segment from the URL
-        import re
         match = re.search(r'(\d{4}_\w+_[A-Za-z0-9]+)\/[\w_]+\/([\d_]+)', url)
         if match:
             season, segment = match.groups()
             ds.attrs['season'] = season
             ds.attrs['segment'] = segment
+
+            ds['src_season'] = xr.DataArray(
+                [season] * ds.sizes['slow_time'],
+                dims=['slow_time'],
+                coords={'slow_time': ds.coords['slow_time']},
+                attrs={'description': 'Season name from source URL'}
+            )
+            ds['src_segment'] = xr.DataArray(
+                [segment] * ds.sizes['slow_time'],
+                dims=['slow_time'],
+                coords={'slow_time': ds.coords['slow_time']},
+                attrs={'description': 'Segment name from source URL'}
+            )
 
             # Load citation information
             result = xopr.ops_api.get_segment_metadata(segment_name=segment, season_name=season)
@@ -149,6 +165,49 @@ class OPRConnection:
         ds = ds.swap_dims({'slow_time_idx': 'slow_time'})
 
         return ds
+
+    def load_frame_stac(self, stac_item, data_product: str = "CSARP_standard") -> xr.Dataset:
+        """
+        Load a radar frame from a STAC item.
+
+        Parameters
+        ----------
+        stac_item : dict or pystac.Item
+            The STAC item containing asset URLs.
+        data_product : str, optional
+            The data product to load (default is "CSARP_standard").
+
+        Returns
+        -------
+        xr.Dataset
+            The loaded radar frame as an xarray Dataset.
+        """
+        # Handle both dict and pystac.Item objects
+        if hasattr(stac_item, 'assets'):
+            # pystac.Item object
+            assets = stac_item.assets
+        else:
+            # Dict object
+            assets = stac_item.get('assets', {})
+        
+        # Get the data asset
+        data_asset = assets.get(data_product)
+        if not data_asset:
+            available_assets = list(assets.keys())
+            raise ValueError(f"No {data_product} asset found. Available assets: {available_assets}")
+        
+        # Get the URL from the asset
+        if hasattr(data_asset, 'href'):
+            # pystac.Asset object
+            url = data_asset.href
+        else:
+            # Dict object
+            url = data_asset.get('href')
+            if not url:
+                raise ValueError(f"No href found in {data_product} asset")
+        
+        # Load the frame using the existing method
+        return self.load_frame(url)
     
     def _load_frame_matlab(self, file) -> xr.Dataset:
         """
@@ -524,19 +583,20 @@ class OPRConnection:
                 # Load the frame
                 frame = self.load_frame(url)
                 
-                # Add STAC metadata to frame attributes
-                frame.attrs['stac_collection'] = collection_id
-                frame.attrs['stac_item_id'] = item.get('id')
-                frame.attrs['flight_id'] = flight_id
+                # TODO: Probably better practice not to add attributes from STAC
+                # # Add STAC metadata to frame attributes
+                # frame.attrs['stac_collection'] = collection_id
+                # frame.attrs['stac_item_id'] = item.get('id')
+                # frame.attrs['flight_id'] = flight_id
                 
-                # Add OPR properties if available
-                properties = item.get('properties', {})
-                if 'opr:date' in properties:
-                    frame.attrs['opr_date'] = properties['opr:date']
-                if 'opr:flight' in properties:
-                    frame.attrs['opr_flight'] = properties['opr:flight']
-                if 'opr:segment' in properties:
-                    frame.attrs['opr_segment'] = properties['opr:segment']
+                # # Add OPR properties if available
+                # properties = item.get('properties', {})
+                # if 'opr:date' in properties:
+                #     frame.attrs['opr_date'] = properties['opr:date']
+                # if 'opr:flight' in properties:
+                #     frame.attrs['opr_flight'] = properties['opr:flight']
+                # if 'opr:segment' in properties:
+                #     frame.attrs['opr_segment'] = properties['opr:segment']
                 
                 frames.append(frame)
                 
@@ -550,6 +610,42 @@ class OPRConnection:
         
         print(f"Successfully loaded {len(frames)} frames from flight '{flight_id}'")
         return frames
+    
+    def merge_flights_from_frames(self, frames: Iterable[xr.Dataset]) -> list[xr.Dataset]:
+        """
+        Merge multiple radar frames into a single flight dataset.
+
+        Parameters
+        ----------
+        frames : Iterable[xr.Dataset]
+            An iterable of xarray Datasets representing radar frames.
+
+        Returns
+        -------
+        list[xr.Dataset]
+            List of merged xarray Datasets, one for each flight.
+        """
+        flights = {}
+        
+        for frame in frames:
+            # Get flight ID from frame attributes
+            flight_id = frame.attrs.get('segment')
+            if not flight_id:
+                print("Warning: Frame missing 'segment' attribute, skipping.")
+                continue
+            
+            if flight_id not in flights:
+                flights[flight_id] = []
+            
+            flights[flight_id].append(frame)
+        
+        # Merge frames for each flight
+        merged_flights = []
+        for flight_id, flight_frames in flights.items():
+            merged_flight = xr.concat(flight_frames, dim='slow_time', combine_attrs='drop')
+            merged_flights.append(merged_flight)
+        
+        return merged_flights
 
 
     def get_ror_display_name(self, ror_id: str) -> Optional[str]:
@@ -644,7 +740,8 @@ class OPRConnection:
 
         return citation_string if citation_string else "No citation information available for this dataset."
 
-    def search_by_geometry(self, geometry, collections=None, max_items=None, data_product: str = "CSARP_standard") -> list:
+    def search_by_geometry(self, geometry, collections=None, max_items=None,
+                           data_product: str = "CSARP_standard", trim_to_geometry: bool = False) -> list:
         """
         Search for flight segments that intersect with a given geometry.
         
@@ -662,6 +759,8 @@ class OPRConnection:
         data_product : str, optional
             The data product to load from the STAC items (default is "CSARP_standard").
             If set to None, this will return the raw STAC items without loading any data.
+        trim_to_geometry : bool, optional
+            If True, trims the loaded frames to only include data within the geometry.
             
         Returns
         -------
@@ -688,8 +787,6 @@ class OPRConnection:
         >>> george_vi = get_antarctic_regions(name="George_VI", type="FL")[0]
         >>> items = opr.search_by_geometry(george_vi)
         """
-        from pystac_client import Client
-        import json
         
         # Convert input geometry to GeoJSON format
         if isinstance(geometry, str):
@@ -707,7 +804,7 @@ class OPRConnection:
             )
         
         # Set up STAC client
-        client = Client.open(self.stac_api_url)
+        client = pystac_client.Client.open(self.stac_api_url)
         
         # Prepare search parameters
         search_params = {
@@ -766,6 +863,12 @@ class OPRConnection:
             ds_list.append(frame)
         
         print(f"Successfully loaded {len(ds_list)} frames from spatial search")
+
+        if trim_to_geometry:
+            for i in range(len(ds_list)):
+                pts = shapely.points(ds_list[i]['Longitude'], ds_list[i]['Latitude'])
+                ds_list[i] = ds_list[i].isel(slow_time=geometry.contains(pts))
+
         return ds_list
 
     def get_layers_files(self, ds: xr.Dataset) -> dict:
@@ -783,12 +886,9 @@ class OPRConnection:
             A dictionary mapping layer IDs to their corresponding data.
         """
         # Get collection and flight information from the dataset attributes
-        collection = ds.attrs.get('stac_collection')
-        date = ds.attrs.get('opr_date')
-        flight = ds.attrs.get('opr_flight')
-
-        if not all([collection, date, flight]):
-            raise ValueError("Dataset must contain stac_collection, opr_date, and opr_flight attributes")
+        collection = ds.attrs.get('season')
+        date, flight = ds.attrs.get('segment').split('_')
+        date = int(date)
 
         # Query STAC collection for CSARP_layer files matching this specific flight
         try:
@@ -1040,8 +1140,6 @@ class OPRConnection:
         
         return ds
 
-
-
     def get_layers_db(self, ds: xr.Dataset) -> dict:
         """
         Fetch layer data from the OPS API
@@ -1057,9 +1155,9 @@ class OPRConnection:
             A dictionary mapping layer IDs to their corresponding data.
         """
 
-        if 'Antarctica' in ds.attrs['stac_collection']:
+        if 'Antarctica' in ds.attrs['season']:
             location = 'antarctic'
-        elif 'Greenland' in ds.attrs['stac_collection']:
+        elif 'Greenland' in ds.attrs['season']:
             location = 'arctic'
         else:
             raise ValueError("Dataset does not belong to a recognized location (Antarctica or Greenland).")
@@ -1087,23 +1185,16 @@ class OPRConnection:
             l = layer_ds_raw.where(layer_ds_raw['lyr_id'] == layer_id, drop=True)
 
             l = l.sortby('gps_time')
-            #l = l.rename({'twtt': f'layer_{layer_id}_twtt'})
 
             l = l.rename({'gps_time': 'slow_time'})
             l = l.set_coords(['slow_time'])
 
-            # slow_time_1d = pd.to_datetime(l['slow_time'].values, unit='s')
-            # l = l.assign_coords(slow_time=('slow_time_idx', slow_time_1d))
-
             l['slow_time'] = pd.to_datetime(l['slow_time'].values, unit='s')
-
-            
 
             # Filter to the same time range as ds
             l = l.sel(slow_time=slice(ds['slow_time'].min(), ds['slow_time'].max()))
 
             layers[layer_id] = l
-            #ds = xr.merge([ds, l], compat='override')
 
         return layers
             
