@@ -647,6 +647,7 @@ class OPRConnection:
     def get_layers_files(self, ds: xr.Dataset) -> dict:
         """
         Fetch layers from the CSARP_layers files
+        
         Parameters
         ----------
         ds : xr.Dataset
@@ -657,19 +658,265 @@ class OPRConnection:
         dict
             A dictionary mapping layer IDs to their corresponding data.
         """
+        # Get collection and flight information from the dataset attributes
+        collection = ds.attrs.get('stac_collection')
+        date = ds.attrs.get('opr_date')
+        flight = ds.attrs.get('opr_flight')
 
-        layer_frames = self.load_flight(
-            collection_id=ds.attrs['stac_collection'],
-            flight_id=ds.attrs['flight_id'],
-            data_product='CSARP_layers'
-        )
+        if not all([collection, date, flight]):
+            raise ValueError("Dataset must contain stac_collection, opr_date, and opr_flight attributes")
 
-        layers_flight = xr.concat(layer_frames, dim='slow_time', combine_attrs='drop_conflicts')
-
-
-        raise NotImplementedError("TODO")
+        # Query STAC collection for CSARP_layer files matching this specific flight
+        try:
+                      
+            # Use query_flight_items to get only items from this specific flight
+            stac_items = self.query_flight_items(collection, date, flight)
+            
+            # Filter for items that have CSARP_layer assets
+            layer_items = []
+            for item in stac_items:
+                if 'CSARP_layer' in item.get('assets', {}):
+                    layer_items.append(item)
+            
+            if not layer_items:
+                print(f"No CSARP_layer files found for segment {segment} in collection {collection_id}")
+                return {}
+            
+            # Load each layer file and combine them
+            layer_frames = []
+            for item in layer_items:
+                layer_asset = item.get('assets', {}).get('CSARP_layer')
+                if layer_asset and 'href' in layer_asset:
+                    url = layer_asset['href']
+                    try:
+                        layer_ds = self.load_layers_file(url)
+                        layer_frames.append(layer_ds)
+                    except Exception as e:
+                        print(f"Warning: Failed to load layer file {url}: {e}")
+                        continue
+            
+            if not layer_frames:
+                print("No layer frames could be loaded")
+                return {}
+            
+            # Concatenate all layer frames along slow_time dimension
+            layers_flight = xr.concat(layer_frames, dim='slow_time', combine_attrs='drop_conflicts')
+            layers_flight = layers_flight.sortby('slow_time')
+            
+            # Trim to bounds of the original dataset
+            layers_flight = layers_flight.sel(slow_time=slice(ds['slow_time'].min(), ds['slow_time'].max()))
+            
+            # Split into separate layers by ID
+            layers = {}
+            
+            layer_ids = np.unique(layers_flight['id'])
+            
+            for i, layer_id in enumerate(layer_ids):
+                layer_id_int = int(layer_id)
+                layer_data = {}
+                
+                for var_name, var_data in layers_flight.data_vars.items():
+                    if 'layer' in var_data.dims:
+                        # Select the i-th layer from 2D variables (layer, slow_time)
+                        layer_data[var_name] = (['slow_time'], var_data.isel(layer=i).values)
+                    else:
+                        # 1D variables that don't have layer dimension
+                        layer_data[var_name] = var_data
+                
+                # Create coordinates (excluding layer coordinate)
+                coords = {k: v for k, v in layers_flight.coords.items() if k != 'layer'}
+                
+                # Create the layer dataset
+                layer_ds = xr.Dataset(layer_data, coords=coords)
+                layers[layer_id_int] = layer_ds
+            
+            return layers
+            
+        except Exception as e:
+            print(f"Error fetching layer files: {e}")
+            return {}
     
-        return None
+    def load_layers_file(self, url: str) -> xr.Dataset:
+        """
+        Load layer data from a CSARP_layer file (either HDF5 or MATLAB format).
+        
+        Parameters
+        ----------
+        url : str
+            URL or path to the layer file
+            
+        Returns
+        -------
+        xr.Dataset
+            Layer data in a standardized format with coordinates:
+            - slow_time: GPS time converted to datetime
+            And data variables:
+            - twtt: Two-way travel time for each layer
+            - quality: Quality values for each layer
+            - type: Type values for each layer  
+            - lat, lon, elev: Geographic coordinates
+            - id: Layer IDs
+        """
+
+        if self.fsspec_url_prefix:
+            file = fsspec.open_local(f"{self.fsspec_url_prefix}{url}", filecache=self.fsspec_cache_kwargs)
+        else:
+            file = fsspec.open_local(f"simplecache::{url}", **self.fsspec_cache_kwargs)
+
+        try:
+            ds = self._load_layers_hdf5(file)
+        except OSError:
+            ds = self._load_layers_matlab(file)
+
+        # Add the source URL as an attribute
+        ds.attrs['source_url'] = url
+
+        # Apply common manipulations to match the expected structure
+        # Convert GPS time to datetime coordinate
+        if 'gps_time' in ds.variables:
+            slow_time_dt = pd.to_datetime(ds['gps_time'].values, unit='s')
+            ds = ds.assign_coords(slow_time=('slow_time', slow_time_dt))
+            
+            # Set slow_time as the main coordinate and remove gps_time from data_vars
+            if 'slow_time' not in ds.dims:
+                ds = ds.swap_dims({'gps_time': 'slow_time'})
+            
+            # Remove gps_time from data_vars if it exists there to avoid conflicts
+            if 'gps_time' in ds.data_vars:
+                ds = ds.drop_vars('gps_time')
+        
+        # Sort by slow_time if it exists
+        if 'slow_time' in ds.coords:
+            ds = ds.sortby('slow_time')
+
+        return ds
+    
+    def _load_layers_hdf5(self, file) -> xr.Dataset:
+        """
+        Load layer data from an HDF5 format file.
+        
+        Parameters
+        ----------
+        file : str
+            Path to the HDF5 layer file
+            
+        Returns
+        -------
+        xr.Dataset
+            Raw layer data from HDF5 file
+        """
+        # Load the HDF5 file using h5netcdf engine with phony_dims='sort'
+        ds = xr.open_dataset(file, engine='h5netcdf', phony_dims='sort')
+        
+        # Squeeze to remove singleton dimensions
+        ds = ds.squeeze()
+        
+        # Rename dimensions based on the structure observed in the notebook
+        # The HDF5 format has phony dimensions that need to be renamed
+        dim_mapping = {}
+        
+        # Find the dimension corresponding to the number of GPS time points
+        if 'gps_time' in ds.variables:
+            gps_time_shape = ds['gps_time'].shape
+            if len(gps_time_shape) >= 1:
+                gps_time_dim = ds['gps_time'].dims[0]
+                dim_mapping[gps_time_dim] = 'slow_time'
+        
+        # Find the dimension corresponding to layer IDs
+        if 'id' in ds.variables:
+            id_shape = ds['id'].shape  
+            if len(id_shape) >= 1:
+                id_dim = ds['id'].dims[0]
+                if id_dim not in dim_mapping.values():
+                    dim_mapping[id_dim] = 'layer'
+        
+        # Apply dimension renaming
+        if dim_mapping:
+            ds = ds.rename(dim_mapping)
+        
+        # Set up coordinates and data variables separately
+        coords = {}
+        data_vars = {}
+        
+        # Handle coordinates
+        if 'gps_time' in ds.variables:
+            coords['gps_time'] = ds['gps_time']
+            
+        # Handle data variables, excluding coordinates
+        for var_name, var_data in ds.data_vars.items():
+            if var_name == 'gps_time':
+                continue  # Skip gps_time since it's already in coords
+            elif var_name in ['twtt', 'quality', 'type'] and len(var_data.dims) == 2:
+                # These are 2D arrays: (layer, slow_time)
+                data_vars[var_name] = var_data.transpose('slow_time', 'layer') if 'layer' in var_data.dims else var_data
+            else:
+                data_vars[var_name] = var_data
+                
+        # Create new dataset with proper structure
+        ds_restructured = xr.Dataset(data_vars, coords=coords)
+        
+        return ds_restructured
+    
+    def _load_layers_matlab(self, file) -> xr.Dataset:
+        """
+        Load layer data from a MATLAB format file.
+        
+        Parameters
+        ----------
+        file : str
+            Path to the MATLAB layer file
+            
+        Returns
+        -------
+        xr.Dataset  
+            Raw layer data from MATLAB file
+        """
+        # Load MATLAB file
+        m = scipy.io.loadmat(file, squeeze_me=True)
+        
+        # Extract basic 1D variables (same length as GPS time points)
+        n_time = len(m['gps_time']) if 'gps_time' in m else 0
+        
+        data_vars = {}
+        coords = {}
+        
+        # Handle coordinates
+        if 'gps_time' in m:
+            coords['gps_time'] = (['slow_time'], m['gps_time'])
+        
+        # Handle 1D variables that correspond to GPS time points
+        for var_name in ['lat', 'lon', 'elev']:
+            if var_name in m and np.asarray(m[var_name]).shape == (n_time,):
+                data_vars[var_name] = (['slow_time'], m[var_name])
+        
+        # Handle the layer ID array
+        if 'id' in m:
+            layer_ids = np.asarray(m['id'])
+            coords['layer'] = (['layer'], layer_ids)
+            data_vars['id'] = (['layer'], layer_ids)
+        
+        # Handle 2D variables (layer x time)
+        for var_name in ['twtt', 'quality', 'type']:
+            if var_name in m:
+                var_data = np.asarray(m[var_name])
+                if var_data.ndim == 2:
+                    # Shape is (layer, slow_time)
+                    data_vars[var_name] = (['layer', 'slow_time'], var_data)
+                elif var_data.ndim == 1:
+                    # Sometimes these might be 1D
+                    data_vars[var_name] = (['slow_time'], var_data)
+        
+        # Handle any other scalar or metadata variables
+        for var_name in ['file_type', 'file_version']:
+            if var_name in m and np.asarray(m[var_name]).ndim == 0:
+                data_vars[var_name] = ([], m[var_name])
+        
+        # Create the dataset
+        ds = xr.Dataset(data_vars, coords=coords)
+        
+        return ds
+
+
 
     def get_layers_db(self, ds: xr.Dataset) -> dict:
         """
