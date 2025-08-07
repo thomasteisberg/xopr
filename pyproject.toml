@@ -34,7 +34,6 @@ stac = [
 docs = [
     "jupyter-book>=2.0.0a0",
     "dask[distributed]",
-    "distribtued",
     "coiled>=1.117.0",
     "ipykernel",
     "hvplot",
