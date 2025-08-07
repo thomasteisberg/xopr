@@ -644,6 +644,130 @@ class OPRConnection:
 
         return citation_string if citation_string else "No citation information available for this dataset."
 
+    def search_by_geometry(self, geometry, collections=None, max_items=None, data_product: str = "CSARP_standard") -> list:
+        """
+        Search for flight segments that intersect with a given geometry.
+        
+        Parameters
+        ----------
+        geometry : str, dict, or object with __geo_interface__
+            The geometry to search within. Can be:
+            - GeoJSON string
+            - GeoJSON geometry dict  
+            - Any object implementing __geo_interface__ (e.g., shapely geometries, geopandas objects)
+        collections : str or list, optional
+            Collection ID(s) to search within. If None, searches all collections.
+        max_items : int, optional
+            Maximum number of items to return. If None, returns all matching items.
+        data_product : str, optional
+            The data product to load from the STAC items (default is "CSARP_standard").
+            If set to None, this will return the raw STAC items without loading any data.
+            
+        Returns
+        -------
+        list
+            List of xarray Datasets for the flight segments that intersect with the geometry if
+            data_product is not None, otherwise returns the raw STAC items.
+
+        Examples
+        --------
+        # Search with a GeoJSON geometry dict
+        >>> geometry = {"type": "Point", "coordinates": [-70.0, -75.0]}
+        >>> items = opr.search_by_geometry(geometry)
+        
+        # Search with a shapely geometry
+        >>> from shapely.geometry import Point
+        >>> point = Point(-70.0, -75.0)
+        >>> items = opr.search_by_geometry(point)
+        
+        # Search specific collection
+        >>> items = opr.search_by_geometry(geometry, collections="2016_Antarctica_DC8")
+        
+        # Use with Antarctic regions
+        >>> from xopr.geometry import get_antarctic_regions
+        >>> george_vi = get_antarctic_regions(name="George_VI", type="FL")[0]
+        >>> items = opr.search_by_geometry(george_vi)
+        """
+        from pystac_client import Client
+        import json
+        
+        # Convert input geometry to GeoJSON format
+        if isinstance(geometry, str):
+            # Assume it's a GeoJSON string
+            geometry_geojson = json.loads(geometry)
+        elif isinstance(geometry, dict):
+            # Assume it's already a GeoJSON geometry dict
+            geometry_geojson = geometry
+        elif hasattr(geometry, '__geo_interface__'):
+            # Object implementing __geo_interface__ (shapely, geopandas, etc.)
+            geometry_geojson = geometry.__geo_interface__
+        else:
+            raise ValueError(
+                "geometry must be a GeoJSON string, GeoJSON dict, or object implementing __geo_interface__"
+            )
+        
+        # Set up STAC client
+        client = Client.open(self.stac_api_url)
+        
+        # Prepare search parameters
+        search_params = {
+            'intersects': geometry_geojson
+        }
+        
+        if collections is not None:
+            if isinstance(collections, str):
+                collections = [collections]
+            search_params['collections'] = collections
+            
+        if max_items is not None:
+            search_params['max_items'] = max_items
+        
+        # Perform the search
+        try:
+            search = client.search(**search_params)
+            items = list(search.items())
+            
+            print(f"Found {len(items)} flight segments intersecting with the geometry")
+            
+            if items:
+                # Group results by collection for summary
+                collections_summary = {}
+                for item in items:
+                    collection_id = item.collection_id
+                    if collection_id not in collections_summary:
+                        collections_summary[collection_id] = 0
+                    collections_summary[collection_id] += 1
+                
+                print("Items by collection:")
+                for collection_id, count in collections_summary.items():
+                    print(f"  {collection_id}: {count} items")
+
+        except Exception as e:
+            print(f"Error performing spatial search: {e}")
+            return []
+        
+        if data_product is None:
+            # Return raw STAC items if no data product specified
+            return items
+        
+        # Load data for each item
+        ds_list = []
+        for item in items:
+            # Get data asset URL
+            data_asset = item.assets.get(data_product)
+            if not data_asset:
+                print(f"Warning: No {data_product} asset found for item {item.id}")
+                continue
+            
+            url = data_asset.href
+            
+            # Load the frame
+            frame = self.load_frame(url)
+            ds_list.append(frame)
+        
+        print(f"Successfully loaded {len(ds_list)} frames from spatial search")
+        return ds_list
+
     def get_layers_files(self, ds: xr.Dataset) -> dict:
         """
         Fetch layers from the CSARP_layers files
