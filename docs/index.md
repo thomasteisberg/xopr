@@ -21,12 +21,25 @@ pip install git+https://github.com/thomasteisberg/xopr
 Or, using [uv](https://docs.astral.sh/uv/):
 
 :::{code}
-uv add "xopr @ git+https://docs.astral.sh/uv/"
+uv add "xopr @ git+https://github.com/thomasteisberg/xopr"
 :::
 
 ## Getting Started
 
-The best way to get started is to check out some of our demo notebooks from the menu on the left side or [on GitHub](https://github.com/thomasteisberg/xopr/tree/thomas/uv-migration/docs/notebooks).
+Minimal example of loading and plotting a single frame of radar data:
+
+```python
+import numpy as np
+import xopr.opr_access
+
+opr = xopr.opr_access.OPRConnection()
+
+frames = opr.load_flight("2022_Antarctica_BaslerMKB", flight_id="20221228_01", data_product="CSARP_standard", max_items=1)
+
+(10*np.log10(frames[0].Data)).plot.imshow(x='slow_time', y='twtt', cmap='gray', yincrease=False)
+```
+
+To learn more, check out our demo notebooks from the menu on the left side or [on GitHub](https://github.com/thomasteisberg/xopr/tree/thomas/uv-migration/docs/notebooks).
 
 ## Design
 
