@@ -527,7 +527,7 @@ class OPRConnection:
         
         return flight_list
 
-    def load_flight(self, collection_id: str, flight_id: str, data_product: str = "CSARP_standard", print_status: bool = False) -> list:
+    def load_flight(self, collection_id: str, flight_id: str, data_product: str = "CSARP_standard", max_items : int = None, print_status: bool = False) -> list:
         """
         Load all radar frames from a specific flight.
 
@@ -537,6 +537,10 @@ class OPRConnection:
             The ID of the STAC collection containing the flight.
         flight_id : str
             The flight ID (format: YYYYMMDD_NN, e.g., '20161014_03').
+        data_product : str, optional
+            The data product to load (default: "CSARP_standard").
+        max_items : int, optional
+            Maximum number of items to load. If None, loads all items.
         print_status : bool, optional
             If True, print status messages during loading.
 
@@ -562,6 +566,15 @@ class OPRConnection:
         
         # Sort items by segment number
         flight_items.sort(key=lambda x: x.get('properties', {}).get('opr:segment', 0))
+
+        if max_items is not None:
+            flight_items = flight_items[:max_items]
+            print(f"Limiting to {max_items} items for flight '{flight_id}'")
+
+        if data_product is None:
+            # If no data product specified, return raw STAC items
+            print(f"Returning {len(flight_items)} raw STAC items for flight '{flight_id}'")
+            return flight_items
         
         print(f"Loading {len(flight_items)} frames from flight '{flight_id}'...")
         

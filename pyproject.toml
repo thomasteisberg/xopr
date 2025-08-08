@@ -24,6 +24,7 @@ dependencies = [
     "scipy",
     "pystac_client",
     "stac_asset",
+    "fsspec"
 ]
 
 [project.optional-dependencies]
