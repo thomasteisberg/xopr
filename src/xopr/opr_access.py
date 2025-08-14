@@ -1019,7 +1019,7 @@ class OPRConnection:
                 ds = ds.swap_dims({'gps_time': 'slow_time'})
             
             # Remove gps_time from data_vars if it exists there to avoid conflicts
-            if 'gps_time' in ds.data_vars:
+            if ('gps_time' in ds.data_vars) or ('gps_time' in ds.coords):
                 ds = ds.drop_vars('gps_time')
         
         # Sort by slow_time if it exists
