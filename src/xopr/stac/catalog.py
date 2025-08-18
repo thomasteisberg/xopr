@@ -21,13 +21,20 @@ def create_catalog(
     """
     Create a root STAC catalog for OPR data.
     
-    Args:
-        catalog_id: Unique identifier for the catalog
-        description: Human-readable description
-        stac_extensions: List of STAC extension URLs to enable
+    Parameters
+    ----------
+    catalog_id : str, default "OPR"
+        Unique identifier for the catalog.
+    description : str, default "Open Polar Radar airborne data"
+        Human-readable description of the catalog.
+    stac_extensions : list of str, optional
+        List of STAC extension URLs to enable. If None, defaults to
+        projection and file extensions.
         
-    Returns:
-        pystac.Catalog: Root catalog object
+    Returns
+    -------
+    pystac.Catalog
+        Root catalog object.
     """
     if stac_extensions is None:
         stac_extensions = [
@@ -52,15 +59,24 @@ def create_collection(
     """
     Create a STAC collection for a campaign or data product grouping.
     
-    Args:
-        collection_id: Unique identifier for the collection
-        description: Human-readable description
-        extent: Spatial and temporal extent of the collection
-        license: Data license identifier
-        stac_extensions: List of STAC extension URLs to enable
+    Parameters
+    ----------
+    collection_id : str
+        Unique identifier for the collection.
+    description : str
+        Human-readable description of the collection.
+    extent : pystac.Extent
+        Spatial and temporal extent of the collection.
+    license : str, default ""
+        Data license identifier.
+    stac_extensions : list of str, optional
+        List of STAC extension URLs to enable. If None, defaults to
+        empty list.
         
-    Returns:
-        pystac.Collection: Collection object
+    Returns
+    -------
+    pystac.Collection
+        Collection object.
     """
     if stac_extensions is None:
         stac_extensions = []
@@ -86,17 +102,29 @@ def create_item(
     """
     Create a STAC item for a flight line data segment.
     
-    Args:
-        item_id: Unique identifier for the item
-        geometry: GeoJSON geometry object
-        bbox: Bounding box [xmin, ymin, xmax, ymax]
-        datetime: Acquisition datetime
-        properties: Additional metadata properties
-        assets: Dictionary of assets (data files, thumbnails, etc.)
-        stac_extensions: List of STAC extension URLs to enable
+    Parameters
+    ----------
+    item_id : str
+        Unique identifier for the item.
+    geometry : dict
+        GeoJSON geometry object.
+    bbox : list of float
+        Bounding box coordinates [xmin, ymin, xmax, ymax].
+    datetime : datetime
+        Acquisition datetime.
+    properties : dict, optional
+        Additional metadata properties. If None, defaults to empty dict.
+    assets : dict of str to pystac.Asset, optional
+        Dictionary of assets (data files, thumbnails, etc.). Keys are 
+        asset names, values are pystac.Asset objects.
+    stac_extensions : list of str, optional
+        List of STAC extension URLs to enable. If None, defaults to
+        file extension.
         
-    Returns:
-        pystac.Item: Item object
+    Returns
+    -------
+    pystac.Item
+        Item object with specified properties and assets.
     """
     if properties is None:
         properties = {}
@@ -128,14 +156,23 @@ def create_items_from_flight_data(
     """
     Create STAC items from flight line data.
     
-    Args:
-        flight_data: Flight metadata from discover_flight_lines()
-        base_url: Base URL for constructing asset hrefs
-        campaign_name: Campaign name for URL construction
-        data_product: Data product name
+    Parameters
+    ----------
+    flight_data : dict
+        Flight metadata from discover_flight_lines(). Expected to contain
+        'flight_id' and 'data_files' keys.
+    base_url : str, default "https://data.cresis.ku.edu/data/rds/"
+        Base URL for constructing asset hrefs.
+    campaign_name : str, default ""
+        Campaign name for URL construction.
+    primary_data_product : str, default "CSARP_standard"
+        Data product name to use as primary data source.
         
-    Returns:
-        List of pystac.Item objects, one per MAT file
+    Returns
+    -------
+    list of pystac.Item
+        List of STAC Item objects, one per MAT file in the flight data.
+        Each item contains geometry, temporal information, and asset links.
     """
     items = []
     flight_id = flight_data['flight_id']
@@ -222,11 +259,20 @@ def build_collection_extent(items: List[pystac.Item]) -> pystac.Extent:
     """
     Calculate spatial and temporal extent from a list of items.
     
-    Args:
-        items: List of STAC items
+    Parameters
+    ----------
+    items : list of pystac.Item
+        List of STAC items to compute extent from.
         
-    Returns:
-        pystac.Extent: Combined spatial and temporal extent
+    Returns
+    -------
+    pystac.Extent
+        Combined spatial and temporal extent covering all input items.
+        
+    Raises
+    ------
+    ValueError
+        If items list is empty.
     """
     if not items:
         raise ValueError("Cannot build extent from empty item list")

@@ -19,11 +19,16 @@ def get_mat_file_type(file_path: Path) -> str:
     """
     Figure out if a MAT file is in HDF5 format or older MATLAB format.
 
-    Args:
-        file_path: Path to the MAT file
+    Parameters
+    ----------
+    file_path : pathlib.Path
+        Path to the MAT file to analyze.
     
-    Returns:
-        str: 'application/x-hdf5' if HDF5, 'application/x-matlab-data' if older MATLAB format
+    Returns
+    -------
+    str
+        MIME type string: 'application/x-hdf5' if HDF5 format, 
+        'application/x-matlab-data' if older MATLAB format.
     """
 
     try:
@@ -38,15 +43,31 @@ def extract_item_metadata(mat_file_path: Path, max_geometry_path_length: int = 1
     """
     Extract spatial and temporal metadata from MAT/HDF5 file.
     
-    Args:
-        mat_file_path: Path to MAT/HDF5 file containing GPS time and coordinate data
+    Parameters
+    ----------
+    mat_file_path : pathlib.Path
+        Path to MAT/HDF5 file containing GPS time and coordinate data.
+    max_geometry_path_length : int, default 1000
+        Maximum number of points to include in geometry. If file contains
+        more points, they will be downsampled.
         
-    Returns:
-        Dictionary containing geometry, bounding box, and date metadata
+    Returns
+    -------
+    dict
+        Dictionary containing extracted metadata with keys:
+        - 'geom' : shapely.geometry.LineString
+            Flight path geometry.
+        - 'bbox' : shapely.geometry.box
+            Bounding box of flight path.
+        - 'date' : datetime.datetime
+            Mean acquisition datetime.
         
-    Raises:
-        FileNotFoundError: If input file doesn't exist
-        KeyError: If required fields are missing from input file
+    Raises
+    ------
+    FileNotFoundError
+        If input file doesn't exist.
+    KeyError
+        If required coordinate or time fields are missing from input file.
     """
     if not mat_file_path.exists():
         raise FileNotFoundError(f"MAT file not found: {mat_file_path}")
@@ -119,16 +140,31 @@ def discover_campaigns(data_root: Path) -> List[Dict[str, str]]:
     """
     Discover all campaigns in the data directory.
     
-    Args:
-        data_root: Root directory containing campaign subdirectories
+    Parameters
+    ----------
+    data_root : pathlib.Path
+        Root directory containing campaign subdirectories.
         
-    Returns:
+    Returns
+    -------
+    list of dict
         List of campaign metadata dictionaries with keys:
-        - name: Campaign directory name (e.g., "2016_Antarctica_DC8")
-        - year: Campaign year
-        - location: Campaign location
-        - aircraft: Aircraft type
-        - path: Full path to campaign directory
+        
+        - 'name' : str
+            Campaign directory name (e.g., "2016_Antarctica_DC8").
+        - 'year' : str
+            Campaign year.
+        - 'location' : str
+            Campaign location.
+        - 'aircraft' : str
+            Aircraft type.
+        - 'path' : str
+            Full path to campaign directory.
+            
+    Raises
+    ------
+    FileNotFoundError
+        If data_root directory doesn't exist.
     """
     campaign_pattern = re.compile(r'^(\d{4})_([^_]+)_([^_]+)$')
     campaigns = []
@@ -156,11 +192,16 @@ def discover_data_products(campaign_path: Path) -> List[str]:
     """
     Discover available data products in a campaign directory.
     
-    Args:
-        campaign_path: Path to campaign directory
+    Parameters
+    ----------
+    campaign_path : pathlib.Path
+        Path to campaign directory.
         
-    Returns:
-        List of data product names (e.g., ["CSARP_standard", "CSARP_layer"])
+    Returns
+    -------
+    list of str
+        List of data product names (e.g., ["CSARP_standard", "CSARP_layer"]).
+        Names follow the pattern "CSARP_*".
     """
     products = []
     csarp_pattern = re.compile(r'^CSARP_\w+$')
@@ -176,17 +217,34 @@ def discover_flight_lines(campaign_path: Path, discovery_data_product: str = "CS
     """
     Discover flight lines for a specific data product within a campaign.
     
-    Args:
-        campaign_path: Path to campaign directory
-        discovery_data_product: Data product name to look for to find eligible flights (default: "CSARP_standard")
-        extra_data_products: Additional data products to link to flight lines (default: empty list)
+    Parameters
+    ----------
+    campaign_path : pathlib.Path
+        Path to campaign directory.
+    discovery_data_product : str, default "CSARP_standard"
+        Data product name to look for to find eligible flights.
+    extra_data_products : list of str, default []
+        Additional data products to link to flight lines.
         
-    Returns:
+    Returns
+    -------
+    list of dict
         List of flight line metadata dictionaries with keys:
-        - flight_id: Flight line identifier (e.g., "20161014_03")
-        - date: Flight date string
-        - flight_num: Flight number string
-        - mat_files: List of MAT file paths for this flight line
+        
+        - 'flight_id' : str
+            Flight line identifier (e.g., "20161014_03").
+        - 'date' : str
+            Flight date string (YYYYMMDD format).
+        - 'flight_num' : str
+            Flight number string.
+        - 'data_files' : dict
+            Dictionary mapping data product names to dictionaries of 
+            {filename: filepath} for MAT files.
+            
+    Raises
+    ------
+    FileNotFoundError
+        If discovery_data_product directory doesn't exist in campaign_path.
     """
     product_path = campaign_path / discovery_data_product
 
