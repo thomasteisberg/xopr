@@ -41,4 +41,8 @@ docs = [
     "jupyter_bokeh",
 ]
 
+[tool.setuptools]
+packages = ["xopr"]
+
+[tool.setuptools_scm]
 
