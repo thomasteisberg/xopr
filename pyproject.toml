@@ -44,5 +44,5 @@ docs = [
 source = "vcs"
 
 [tool.hatch.build.hooks.vcs]
-version-file = "xopr/_version.py"
+version-file = "src/xopr/_version.py"
 

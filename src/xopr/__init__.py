@@ -27,3 +27,8 @@ Add a docstring here for the init module.
 This might include a very brief description of the package,
 its purpose, and any important notes.
 """
+
+try:
+    from ._version import __version__
+except ImportError:
+    __version__ = "unknown"
