@@ -20,8 +20,38 @@ env:
   BASE_URL: /xopr
 
 jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Set up Miniconda
+      uses: conda-incubator/setup-miniconda@v3
+      with:
+        auto-update-conda: true
+        python-version: '3.12'
+        environment-file: environment.yml
+        activate-environment: xopr-test
+    
+    - name: Install package
+      shell: bash -l {0}
+      run: |
+        pip install -e .
+    
+    - name: Run tests with pytest
+      shell: bash -l {0}
+      run: |
+        pytest --cov=xopr --cov-report=html --cov-report=xml --cov-report=term
+    
+    - name: Upload coverage artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: coverage-report
+        path: ./htmlcov
+
   build:
     runs-on: ubuntu-latest
+    needs: test
     steps:
     - name: Checkout
       uses: actions/checkout@v4
@@ -40,6 +70,17 @@ jobs:
         cd docs
         uv run --extra docs jupyter-book build --html --execute
 
+    - name: Download coverage artifacts
+      uses: actions/download-artifact@v4
+      with:
+        name: coverage-report
+        path: ./coverage-temp
+
+    - name: Copy coverage to docs build
+      run: |
+        mkdir -p docs/_build/html/coverage
+        cp -r ./coverage-temp/* docs/_build/html/coverage/
+
     - name: Setup Pages
       uses: actions/configure-pages@v5
       if: github.ref == 'refs/heads/main'
@@ -55,7 +96,7 @@ jobs:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     runs-on: ubuntu-latest
-    needs: build
+    needs: [test, build]
     if: github.ref == 'refs/heads/main'
     steps:
     - name: Deploy to GitHub Pages

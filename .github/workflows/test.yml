@@ -40,13 +40,12 @@ jobs:
       run: |
         pytest --cov=xopr --cov-report=html --cov-report=xml --cov-report=term
     
-    - name: Deploy coverage to GitHub Pages
-      uses: peaceiris/actions-gh-pages@v3
+    - name: Upload coverage artifacts
+      uses: actions/upload-artifact@v4
       if: github.ref == 'refs/heads/main' && matrix.python-version == '3.12'
       with:
-        github_token: ${{ secrets.GITHUB_TOKEN }}
-        publish_dir: ./htmlcov
-        destination_dir: coverage
+        name: coverage-report
+        path: ./htmlcov
 
     - name: Coverage comment
       uses: py-cov-action/python-coverage-comment-action@v3
