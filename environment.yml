@@ -1,0 +1,31 @@
+name: xopr-test
+channels:
+  - conda-forge
+dependencies:
+  # Core project dependencies
+  - python>=3.10
+  - numpy
+  - scipy
+  - xarray
+  - h5netcdf
+  - requests
+  - matplotlib
+  - aiohttp
+  - geoviews
+  - pystac
+  - shapely
+  - geopandas
+  - h5py
+  - pystac_client
+  - stac_asset
+  - fsspec
+  
+  # Testing and code quality tools
+  - pytest
+  - pytest-cov
+  - coverage
+  - flake8
+  
+  # Optional: Additional useful testing tools
+  - pytest-xdist  # parallel test execution
+  - pytest-mock   # mocking support
