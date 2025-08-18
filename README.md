@@ -2,6 +2,8 @@
 
 **Documentation:** [![Jupyter Book Badge](https://jupyterbook.org/badge.svg)](https://www.thomasteisberg.com/xopr/)
 
+**Code Coverage:** [Coverage Report](https://thomasteisberg.github.io/xopr/coverage/)
+
 **Contributor Code of Conduct:** [![Code of Conduct](https://img.shields.io/badge/Contributor%20Covenant-v2.0%20adopted-ff69b4.svg)](CODE_OF_CONDUCT.md)
 
 xopr is a Python library designed to make accessing [Open Polar Radar's](https://ops.cresis.ku.edu/) data archives easy, scalable, and reproducible.
