@@ -1,6 +1,6 @@
 [build-system]
-requires = ["setuptools>=64", "setuptools-scm>=8", "uv_build"]
-build-backend = "setuptools.build_meta"
+requires = ["hatchling", "hatch-vcs"]
+build-backend = "hatchling.build"
 
 [project]
 name = "xopr"
@@ -21,7 +21,6 @@ dependencies = [
     "shapely",
     "geopandas",
     "h5py",
-    "scipy",
     "pystac_client",
     "stac_asset",
     "fsspec"
@@ -41,8 +40,9 @@ docs = [
     "jupyter_bokeh",
 ]
 
-[tool.setuptools]
-packages = ["xopr"]
+[tool.hatch.version]
+source = "vcs"
 
-[tool.setuptools_scm]
+[tool.hatch.build.hooks.vcs]
+version-file = "xopr/_version.py"
 
