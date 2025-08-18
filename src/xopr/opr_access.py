@@ -982,7 +982,7 @@ class OPRConnection:
                 layer_items.append(item)
         
         if not layer_items:
-            print(f"No CSARP_layer files found for segment {segment} in collection {collection_id}")
+            print(f"No CSARP_layer files found for segment {flight_id} in collection {collection}")
             return {}
         
         # Load each layer file and combine them
