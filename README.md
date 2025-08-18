@@ -3,7 +3,6 @@
 [![Tests](https://github.com/thomasteisberg/xopr/actions/workflows/test.yml/badge.svg)](https://github.com/thomasteisberg/xopr/actions/workflows/test.yml)
 [![Documentation](https://github.com/thomasteisberg/xopr/actions/workflows/docs.yml/badge.svg)](https://github.com/thomasteisberg/xopr/actions/workflows/docs.yml)
 [![PyPI Version](https://img.shields.io/pypi/v/xopr.svg)](https://pypi.org/project/xopr/)
-[![Python Versions](https://img.shields.io/pypi/pyversions/xopr.svg)](https://pypi.org/project/xopr/)
 [![License](https://img.shields.io/github/license/thomasteisberg/xopr.svg)](LICENSE)
 
 **Documentation:** [![Jupyter Book Badge](https://jupyterbook.org/badge.svg)](https://www.thomasteisberg.com/xopr/)
