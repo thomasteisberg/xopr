@@ -16,9 +16,9 @@ dependencies:
   - shapely
   - geopandas
   - h5py
-  - pystac_client
-  - stac_asset
   - fsspec
+  - pip:
+    - stac_asset
   
   # Testing and code quality tools
   - pytest
