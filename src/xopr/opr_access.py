@@ -1,4 +1,5 @@
 from typing import Iterable, Optional
+import warnings
 import xarray as xr
 import fsspec
 import pandas as pd
@@ -44,8 +45,335 @@ class OPRConnection:
             }
             self.fsspec_url_prefix = 'filecache::'
 
+    def query_frames(self, seasons: list[str] = None, flight_ids: list[str] = None, geometry = None, date_range: tuple = None,
+                     parameters: dict = {}, max_items: int = None, full_flights: bool = False, exclude_geometry: bool = False) -> list:
+        """
+        Query for radar frames based on various search criteria. All criteria are combined with AND logic.
+        Lists passed to seasons or flight_ids are combined with OR logic.
 
-    def load_frame(self, url: str) -> xr.Dataset:
+        If full_flights is True, all frames from any flight matching the criteria will be included.
+
+        Parameters
+        ----------
+        seasons : list[str], optional
+            List of season names to filter by (e.g., "2022_Antarctica_BaslerMKB").
+        flight_ids : list[str], optional
+            List of flight IDs to filter by (e.g., "20230126_01").
+        geometry : optional
+            Geospatial geometry to filter by (e.g., a shapely geometry object).
+        date_range : tuple, optional
+            Date range to filter by (e.g., (start_date, end_date)).
+        parameters : dict, optional
+            Additional parameters to include in the query.
+        max_items : int, optional
+            Maximum number of items to return.
+        full_flights : bool, optional
+            If True, return all frames from matching flights.
+        exclude_geometry : bool, optional
+            If True, exclude geometry and bbox fields from the response to reduce size.
+
+        Returns
+        -------
+        list[dict]
+            List of STAC frames matching the query criteria.
+        """
+        # Use direct requests when excluding geometry, otherwise use pystac_client
+        if exclude_geometry:
+            search_url = f"{self.stac_api_url}/search"
+            search_body = {
+                'fields': {
+                    'exclude': ['geometry', 'bbox']
+                }
+            }
+            use_direct_requests = True
+        else:
+            # Set up STAC client for normal queries
+            client = pystac_client.Client.open(self.stac_api_url)
+            search_params = {}
+            use_direct_requests = False
+        
+        # Handle collections (seasons)
+        if seasons is not None:
+            if isinstance(seasons, str):
+                seasons = [seasons]
+            if use_direct_requests:
+                search_body['collections'] = seasons
+            else:
+                search_params['collections'] = seasons
+        
+        # Handle geometry filtering
+        if geometry is not None:
+            # Convert input geometry to GeoJSON format
+            if isinstance(geometry, str):
+                geometry_geojson = json.loads(geometry)
+            elif isinstance(geometry, dict):
+                geometry_geojson = geometry
+            elif hasattr(geometry, '__geo_interface__'):
+                geometry_geojson = geometry.__geo_interface__
+            else:
+                raise ValueError(
+                    "geometry must be a GeoJSON string, GeoJSON dict, or object implementing __geo_interface__"
+                )
+            if use_direct_requests:
+                search_body['intersects'] = geometry_geojson
+            else:
+                search_params['intersects'] = geometry_geojson
+        
+        # Handle date range filtering
+        if date_range is not None:
+            start_date, end_date = date_range
+            datetime_str = f"{start_date}/{end_date}"
+            if use_direct_requests:
+                search_body['datetime'] = datetime_str
+            else:
+                search_params['datetime'] = datetime_str
+        
+        # Handle flight_ids filtering using CQL2
+        filter_conditions = []
+        
+        if flight_ids is not None:
+            if isinstance(flight_ids, str):
+                flight_ids = [flight_ids]
+            
+            # Create OR conditions for flight IDs
+            flight_conditions = []
+            for flight_id in flight_ids:
+                try:
+                    date_str, flight_num_str = flight_id.split('_')
+                    flight_num = int(flight_num_str)
+                    
+                    # Create AND condition for this specific flight
+                    flight_condition = {
+                        "op": "and",
+                        "args": [
+                            {
+                                "op": "=",
+                                "args": [{"property": "opr:date"}, date_str]
+                            },
+                            {
+                                "op": "=",
+                                "args": [{"property": "opr:flight"}, flight_num]
+                            }
+                        ]
+                    }
+                    flight_conditions.append(flight_condition)
+                except ValueError:
+                    print(f"Warning: Invalid flight_id format '{flight_id}'. Expected format: YYYYMMDD_NN")
+                    continue
+            
+            if flight_conditions:
+                if len(flight_conditions) == 1:
+                    filter_conditions.append(flight_conditions[0])
+                else:
+                    # Multiple flights - combine with OR
+                    filter_conditions.append({
+                        "op": "or",
+                        "args": flight_conditions
+                    })
+        
+        # Add any additional parameter filters
+        for key, value in parameters.items():
+            filter_conditions.append({
+                "op": "=",
+                "args": [{"property": key}, value]
+            })
+        
+        # Combine all filter conditions with AND
+        if filter_conditions:
+            if len(filter_conditions) == 1:
+                filter_expr = filter_conditions[0]
+            else:
+                filter_expr = {
+                    "op": "and",
+                    "args": filter_conditions
+                }
+            
+            if use_direct_requests:
+                search_body['filter'] = filter_expr
+            else:
+                search_params['filter'] = filter_expr
+        
+        # Perform the search
+        try:
+            if use_direct_requests:
+                # Use direct requests with pagination for exclude_geometry
+                all_items = []
+                limit = 500
+                current_offset = 0
+                
+                while True:
+                    # Set pagination parameters
+                    current_search_body = search_body.copy()
+                    current_search_body['limit'] = limit
+                    if current_offset > 0:
+                        current_search_body['offset'] = current_offset
+                    
+                    # Apply max_items limit if specified
+                    if max_items is not None:
+                        remaining_items = max_items - len(all_items)
+                        if remaining_items <= 0:
+                            break
+                        current_search_body['limit'] = min(limit, remaining_items)
+                    
+                    response = requests.post(search_url, json=current_search_body)
+                    response.raise_for_status()
+                    data = response.json()
+                    
+                    # Add items from this page
+                    features = data.get('features', [])
+                    if not features:
+                        break
+                    
+                    all_items.extend(features)
+                    
+                    # Check if we've reached the end or hit max_items
+                    if len(features) < limit or (max_items is not None and len(all_items) >= max_items):
+                        break
+                    
+                    current_offset += limit
+                
+                items = all_items
+            else:
+                # Use pystac_client for normal queries
+                if max_items is not None:
+                    search_params['max_items'] = max_items
+                
+                search = client.search(**search_params)
+                items = list(search.items())
+                
+                # Convert pystac items to dictionaries for consistency
+                items = [item.to_dict() for item in items]
+            
+            print(f"Found {len(items)} frames matching the query criteria")
+            
+            if items and not full_flights:
+                return items
+            elif items and full_flights:
+                # Get all flights that match the criteria, then get all frames from those flights
+                matching_flights = set()
+                for item in items:
+                    # Handle both dict items (from direct requests) and pystac Item objects
+                    if isinstance(item, dict):
+                        properties = item.get('properties', {})
+                        collection = item.get('collection')
+                    else:
+                        properties = item.properties
+                        collection = item.collection_id
+                    
+                    date = properties.get('opr:date')
+                    flight_num = properties.get('opr:flight')
+                    
+                    if date and flight_num is not None and collection:
+                        flight_key = f"{date}_{flight_num:02d}"
+                        matching_flights.add((collection, flight_key))
+                
+                # Recursively call query_frames for each flight to get all frames
+                all_flight_frames = []
+                for collection, flight_id in matching_flights:
+                    flight_frames = self.query_frames(
+                        seasons=[collection],
+                        flight_ids=[flight_id],
+                        max_items=None,
+                        full_flights=False,  # Avoid infinite recursion
+                        exclude_geometry=exclude_geometry  # Preserve the exclude_geometry setting
+                    )
+                    all_flight_frames.extend(flight_frames)
+                
+                print(f"Expanded to {len(all_flight_frames)} frames from {len(matching_flights)} full flights")
+                return all_flight_frames
+            else:
+                return []
+                
+        except Exception as e:
+            print(f"Error performing search: {e}")
+            return []
+
+    def load_frames(self, stac_items: list[dict],
+                    data_product: str = "CSARP_standard",
+                    merge_flights: bool = False,
+                    skip_errors: bool = False,
+                    ) -> list[xr.Dataset]:
+        """
+        Load multiple radar frames from a list of STAC items.
+
+        Parameters
+        ----------
+        stac_items : list[dict]
+            List of STAC item dictionaries containing metadata and asset URLs.
+        data_product : str, optional
+            The data product to load (default is "CSARP_standard").
+        merge_flights : bool, optional
+            Whether to merge frames from the same flight (default is False).
+        skip_errors : bool, optional
+            Whether to skip errors and continue loading other frames (default is False).
+
+        Returns
+        -------
+        list[xr.Dataset]
+            List of loaded radar frames as xarray Datasets.
+        """
+        frames = []
+        
+        for item in stac_items:
+            try:
+                frame = self.load_frame(item, data_product)
+                frames.append(frame)
+            except Exception as e:
+                print(f"Error loading frame for item {item.get('id', 'unknown')}: {e}")
+                if skip_errors:
+                    continue
+                else:
+                    raise e
+
+        if merge_flights:
+            return self.merge_flights_from_frames(frames)
+        else:
+            return frames
+
+    def load_frame(self, stac_item, data_product: str = "CSARP_standard") -> xr.Dataset:
+        """
+        Load a radar frame from a STAC item.
+
+        Parameters
+        ----------
+        stac_item : dict or pystac.Item
+            The STAC item containing asset URLs.
+        data_product : str, optional
+            The data product to load (default is "CSARP_standard").
+
+        Returns
+        -------
+        xr.Dataset
+            The loaded radar frame as an xarray Dataset.
+        """
+        # Handle both dict and pystac.Item objects
+        if hasattr(stac_item, 'assets'):
+            # pystac.Item object
+            assets = stac_item.assets
+        else:
+            # Dict object
+            assets = stac_item.get('assets', {})
+        
+        # Get the data asset
+        data_asset = assets.get(data_product)
+        if not data_asset:
+            available_assets = list(assets.keys())
+            raise ValueError(f"No {data_product} asset found. Available assets: {available_assets}")
+        
+        # Get the URL from the asset
+        if hasattr(data_asset, 'href'):
+            # pystac.Asset object
+            url = data_asset.href
+        else:
+            # Dict object
+            url = data_asset.get('href')
+            if not url:
+                raise ValueError(f"No href found in {data_product} asset")
+        
+        # Load the frame using the existing method
+        return self.load_frame_url(url)
+
+    def load_frame_url(self, url: str) -> xr.Dataset:
         """
         Load a radar frame from a given URL.
 
@@ -100,19 +428,22 @@ class OPRConnection:
             # Load citation information
             result = xopr.ops_api.get_segment_metadata(segment_name=segment, season_name=season)
             if result:
-                result_data = {}
-                for key, value in result['data'].items():
-                    if len(value) == 1:
-                        result_data[key] = value[0]
-                    elif len(value) > 1:
-                        result_data[key] = set(value)
+                if isinstance(result['data'], str):
+                    warnings.warn(f"Warning: Unexpected result from ops_api: {result['data']}", UserWarning)
+                else:
+                    result_data = {}
+                    for key, value in result['data'].items():
+                        if len(value) == 1:
+                            result_data[key] = value[0]
+                        elif len(value) > 1:
+                            result_data[key] = set(value)
 
-                if 'dois' in result_data:
-                    ds.attrs['doi'] = result_data['dois']
-                if 'rors' in result_data:
-                    ds.attrs['ror'] = result_data['rors']
-                if 'funding_sources' in result_data:
-                    ds.attrs['funder_text'] = result_data['funding_sources']
+                    if 'dois' in result_data:
+                        ds.attrs['doi'] = result_data['dois']
+                    if 'rors' in result_data:
+                        ds.attrs['ror'] = result_data['rors']
+                    if 'funding_sources' in result_data:
+                        ds.attrs['funder_text'] = result_data['funding_sources']
 
         return ds
     
@@ -165,49 +496,6 @@ class OPRConnection:
         ds = ds.swap_dims({'slow_time_idx': 'slow_time'})
 
         return ds
-
-    def load_frame_stac(self, stac_item, data_product: str = "CSARP_standard") -> xr.Dataset:
-        """
-        Load a radar frame from a STAC item.
-
-        Parameters
-        ----------
-        stac_item : dict or pystac.Item
-            The STAC item containing asset URLs.
-        data_product : str, optional
-            The data product to load (default is "CSARP_standard").
-
-        Returns
-        -------
-        xr.Dataset
-            The loaded radar frame as an xarray Dataset.
-        """
-        # Handle both dict and pystac.Item objects
-        if hasattr(stac_item, 'assets'):
-            # pystac.Item object
-            assets = stac_item.assets
-        else:
-            # Dict object
-            assets = stac_item.get('assets', {})
-        
-        # Get the data asset
-        data_asset = assets.get(data_product)
-        if not data_asset:
-            available_assets = list(assets.keys())
-            raise ValueError(f"No {data_product} asset found. Available assets: {available_assets}")
-        
-        # Get the URL from the asset
-        if hasattr(data_asset, 'href'):
-            # pystac.Asset object
-            url = data_asset.href
-        else:
-            # Dict object
-            url = data_asset.get('href')
-            if not url:
-                raise ValueError(f"No href found in {data_product} asset")
-        
-        # Load the frame using the existing method
-        return self.load_frame(url)
     
     def _load_frame_matlab(self, file) -> xr.Dataset:
         """
@@ -268,100 +556,15 @@ class OPRConnection:
         list
             List of STAC item dictionaries containing metadata and asset URLs.
         """
-        # Use STAC /search endpoint instead of /collections endpoint
-        search_url = f"{self.stac_api_url}/search"
+        warnings.warn(
+            "query_stac_collection is deprecated. Use query_frames(seasons=[collection_id], exclude_geometry=exclude_geometry) instead.",
+            DeprecationWarning,
+            stacklevel=2
+        )
         
-        all_items = []
-        limit = 500  # Use a reasonable batch size
-        next_url = None
-        previous_feature_ids = None
-        current_offset = 0  # Track offset manually for POST requests
-        
-        while True:
-            try:
-                if exclude_geometry:
-                    # When excluding geometry, always use POST requests to ensure proper field exclusion
-                    current_url = search_url
-                    search_body = {
-                        'collections': [collection_id],
-                        'limit': limit,
-                        'fields': {
-                            'exclude': ['geometry', 'bbox']
-                        }
-                    }
-                    
-                    # Add offset for pagination (manual tracking since server doesn't provide proper next URLs for POST)
-                    if current_offset > 0:
-                        search_body['offset'] = current_offset
+        return self.query_frames(seasons=[collection_id], exclude_geometry=exclude_geometry)
 
-                    #print(f"Querying STAC API: {current_url} with POST body: {search_body}")
-                    response = requests.post(current_url, json=search_body)
-                else:
-                    # When not excluding geometry, use GET requests (more efficient)
-                    if next_url:
-                        current_url = next_url
-                        params = {}  # Next URL should already contain all necessary parameters
-                    else:
-                        current_url = search_url
-                        params = {
-                            'collections': [collection_id],
-                            'limit': limit
-                        }
-
-                    #print(f"Querying STAC API: {current_url} with params: {params}")
-                    response = requests.get(current_url, params=params)
-                response.raise_for_status()
-                data = response.json()
-                
-                # Add items from this page
-                features = data.get('features', [])
-                #print(f"Found {len(features)} features in this page.")
-                if not features:
-                    # No more items, break the loop
-                    break
-                
-                # Check for duplicate features from previous page
-                current_feature_ids = {feature.get('id') for feature in features}
-                if previous_feature_ids is not None and current_feature_ids == previous_feature_ids:
-                    raise RuntimeError(f"STAC API returned duplicate features across pages. "
-                                     f"This indicates a server pagination bug. "
-                                     f"Collection: {collection_id}, Feature IDs: {current_feature_ids}")
-                
-                all_items.extend(features)
-                previous_feature_ids = current_feature_ids
-                
-                if exclude_geometry:
-                    # For POST requests, manually handle pagination since server doesn't provide proper next URLs
-                    if len(features) < limit:
-                        # Received fewer features than requested, we've reached the end
-                        break
-                    else:
-                        # Increment offset for next request
-                        current_offset += limit
-                else:
-                    # For GET requests, use the server's next link
-                    next_url = None
-                    if 'links' in data:
-                        for link in data['links']:
-                            if link.get('rel') == 'next':
-                                next_url = link.get('href')
-                                print(f"Next page URL found: {next_url}")
-                                break
-                    
-                    # If no next link, we've reached the end
-                    if not next_url:
-                        break
-                            
-            except requests.exceptions.RequestException as e:
-                print(f"Error querying STAC API: {e}")
-                break
-            except json.JSONDecodeError as e:
-                print(f"Error parsing STAC API response: {e}")
-                break
-        
-        return all_items
-
-    def query_flight_items(self, collection_id: str, date_str: str, flight_num: int) -> list:
+    def query_flight_items(self, collection_id: str, date_str: str, flight_num: int | str) -> list:
         """
         Query STAC API for items from a specific flight using CQL2 filtering.
 
@@ -371,7 +574,7 @@ class OPRConnection:
             The ID of the STAC collection to query.
         date_str : str
             The flight date in YYYYMMDD format.
-        flight_num : int
+        flight_num : int | str
             The flight number.
 
         Returns
@@ -379,79 +582,17 @@ class OPRConnection:
         list
             List of STAC item dictionaries for the specified flight.
         """
-        search_url = f"{self.stac_api_url}/search"
+        warnings.warn(
+            "query_flight_items is deprecated. Use query_frames(seasons=[collection_id], flight_ids=[f'{date_str}_{flight_num:02d}']) instead.",
+            DeprecationWarning,
+            stacklevel=2
+        )
         
-        all_items = []
-        next_url = None
-        previous_feature_ids = None
-        
-        while True:
-            try:
-                # Build CQL2 filter for specific flight
-                filter_condition = {
-                    "op": "and",
-                    "args": [
-                        {
-                            "op": "=",
-                            "args": [{"property": "opr:date"}, date_str]
-                        },
-                        {
-                            "op": "=", 
-                            "args": [{"property": "opr:flight"}, flight_num]
-                        }
-                    ]
-                }
-                
-                # Use the next URL if available, otherwise build search request
-                if next_url:
-                    current_url = next_url
-                    # For next URLs, make a GET request (they should contain all parameters)
-                    response = requests.get(current_url)
-                else:
-                    # Initial request with POST and CQL2 filter
-                    search_body = {
-                        'collections': [collection_id],
-                        'limit': 100,
-                        'filter': filter_condition
-                    }
-                    response = requests.post(search_url, json=search_body)
-                
-                response.raise_for_status()
-                data = response.json()
-                
-                # Add items from this page
-                features = data.get('features', [])
-                if not features:
-                    break
-                
-                # Check for duplicate features from previous page
-                current_feature_ids = {feature.get('id') for feature in features}
-                if previous_feature_ids is not None and current_feature_ids == previous_feature_ids:
-                    raise RuntimeError(f"STAC API returned duplicate features across pages. "
-                                     f"Collection: {collection_id}, Date: {date_str}, Flight: {flight_num}")
-                
-                all_items.extend(features)
-                previous_feature_ids = current_feature_ids
-                
-                # Look for next link
-                next_url = None
-                if 'links' in data:
-                    for link in data['links']:
-                        if link.get('rel') == 'next':
-                            next_url = link.get('href')
-                            break
-                
-                if not next_url:
-                    break
-                            
-            except requests.exceptions.RequestException as e:
-                print(f"Error querying STAC API for flight {date_str}_{flight_num:02d}: {e}")
-                break
-            except json.JSONDecodeError as e:
-                print(f"Error parsing STAC API response: {e}")
-                break
-        
-        return all_items
+        if isinstance(flight_num, int):
+            flight_num = f"{flight_num:02d}"
+
+        flight_id = f"{date_str}_{flight_num}"
+        return self.query_frames(seasons=[collection_id], flight_ids=[flight_id])
 
     def get_collections(self) -> list:
         """
@@ -492,7 +633,7 @@ class OPRConnection:
             List of flight dictionaries with flight metadata.
         """
         # Query STAC API for all items in collection (exclude geometry for better performance)
-        items = self.query_stac_collection(collection_id, exclude_geometry=True)
+        items = self.query_frames(seasons=[collection_id], exclude_geometry=True)
         
         if not items:
             print(f"No items found in collection '{collection_id}'")
@@ -549,16 +690,15 @@ class OPRConnection:
         list
             List of xarray Datasets, one for each frame in the flight, sorted by segment.
         """
-        # Parse flight_id to get date and flight number
-        try:
-            date_str, flight_num_str = flight_id.split('_')
-            flight_num = int(flight_num_str)
-        except ValueError:
-            print(f"Invalid flight_id format '{flight_id}'. Expected format: YYYYMMDD_NN")
-            return []
+        warnings.warn(
+            "load_flight is deprecated. Use query_frames(seasons=[collection_id], flight_ids=[flight_id], max_items=max_items) "
+            "followed by load_frame_stac() for each item instead.",
+            DeprecationWarning,
+            stacklevel=2
+        )
         
-        # Query STAC API with CQL2 filter for specific flight
-        flight_items = self.query_flight_items(collection_id, date_str, flight_num)
+        # Get STAC items using query_frames
+        flight_items = self.query_frames(seasons=[collection_id], flight_ids=[flight_id], max_items=max_items)
         
         if not flight_items:
             print(f"No items found for flight '{flight_id}' in collection '{collection_id}'")
@@ -566,10 +706,6 @@ class OPRConnection:
         
         # Sort items by segment number
         flight_items.sort(key=lambda x: x.get('properties', {}).get('opr:segment', 0))
-
-        if max_items is not None:
-            flight_items = flight_items[:max_items]
-            print(f"Limiting to {max_items} items for flight '{flight_id}'")
 
         if data_product is None:
             # If no data product specified, return raw STAC items
@@ -582,35 +718,8 @@ class OPRConnection:
         frames = []
         for i, item in enumerate(flight_items):
             try:
-                # Get data asset URL
-                data_asset = item.get('assets', {}).get(data_product)
-                if not data_asset:
-                    print(f"Warning: No {data_product} asset found for item {item.get('id', 'unknown')}")
-                    continue
-                
-                url = data_asset.get('href')
-                if not url:
-                    print(f"Warning: No href found for data asset in item {item.get('id', 'unknown')}")
-                    continue
-                
-                # Load the frame
-                frame = self.load_frame(url)
-                
-                # TODO: Probably better practice not to add attributes from STAC
-                # # Add STAC metadata to frame attributes
-                # frame.attrs['stac_collection'] = collection_id
-                # frame.attrs['stac_item_id'] = item.get('id')
-                # frame.attrs['flight_id'] = flight_id
-                
-                # # Add OPR properties if available
-                # properties = item.get('properties', {})
-                # if 'opr:date' in properties:
-                #     frame.attrs['opr_date'] = properties['opr:date']
-                # if 'opr:flight' in properties:
-                #     frame.attrs['opr_flight'] = properties['opr:flight']
-                # if 'opr:segment' in properties:
-                #     frame.attrs['opr_segment'] = properties['opr:segment']
-                
+                # Load the frame using load_frame_stac
+                frame = self.load_frame_stac(item, data_product)
                 frames.append(frame)
                 
                 if print_status:
@@ -626,7 +735,7 @@ class OPRConnection:
     
     def merge_flights_from_frames(self, frames: Iterable[xr.Dataset]) -> list[xr.Dataset]:
         """
-        Merge multiple radar frames into a single flight dataset.
+        Merge a set of radar frames into a list of merged xarray Datasets.
 
         Parameters
         ----------
@@ -636,7 +745,7 @@ class OPRConnection:
         Returns
         -------
         list[xr.Dataset]
-            List of merged xarray Datasets, one for each flight.
+            List of merged xarray Datasets.
         """
         flights = {}
         
@@ -655,9 +764,9 @@ class OPRConnection:
         # Merge frames for each flight
         merged_flights = []
         for flight_id, flight_frames in flights.items():
-            merged_flight = xr.concat(flight_frames, dim='slow_time', combine_attrs='drop')
+            merged_flight = xr.concat(flight_frames, dim='slow_time', combine_attrs='drop').sortby('slow_time')
             merged_flights.append(merged_flight)
-        
+
         return merged_flights
 
 
@@ -780,81 +889,32 @@ class OPRConnection:
         list
             List of xarray Datasets for the flight segments that intersect with the geometry if
             data_product is not None, otherwise returns the raw STAC items.
-
-        Examples
-        --------
-        # Search with a GeoJSON geometry dict
-        >>> geometry = {"type": "Point", "coordinates": [-70.0, -75.0]}
-        >>> items = opr.search_by_geometry(geometry)
-        
-        # Search with a shapely geometry
-        >>> from shapely.geometry import Point
-        >>> point = Point(-70.0, -75.0)
-        >>> items = opr.search_by_geometry(point)
-        
-        # Search specific collection
-        >>> items = opr.search_by_geometry(geometry, collections="2016_Antarctica_DC8")
-        
-        # Use with Antarctic regions
-        >>> from xopr.geometry import get_antarctic_regions
-        >>> george_vi = get_antarctic_regions(name="George_VI", type="FL")[0]
-        >>> items = opr.search_by_geometry(george_vi)
         """
+        warnings.warn(
+            "search_by_geometry is deprecated. Use query_frames(seasons=collections, geometry=geometry, max_items=max_items) "
+            "followed by load_frame_stac() for each item instead.",
+            DeprecationWarning,
+            stacklevel=2
+        )
         
-        # Convert input geometry to GeoJSON format
-        if isinstance(geometry, str):
-            # Assume it's a GeoJSON string
-            geometry_geojson = json.loads(geometry)
-        elif isinstance(geometry, dict):
-            # Assume it's already a GeoJSON geometry dict
-            geometry_geojson = geometry
-        elif hasattr(geometry, '__geo_interface__'):
-            # Object implementing __geo_interface__ (shapely, geopandas, etc.)
-            geometry_geojson = geometry.__geo_interface__
-        else:
-            raise ValueError(
-                "geometry must be a GeoJSON string, GeoJSON dict, or object implementing __geo_interface__"
-            )
+        # Get STAC items using query_frames
+        items = self.query_frames(seasons=collections, geometry=geometry, max_items=max_items)
         
-        # Set up STAC client
-        client = pystac_client.Client.open(self.stac_api_url)
-        
-        # Prepare search parameters
-        search_params = {
-            'intersects': geometry_geojson
-        }
-        
-        if collections is not None:
-            if isinstance(collections, str):
-                collections = [collections]
-            search_params['collections'] = collections
-            
-        if max_items is not None:
-            search_params['max_items'] = max_items
-        
-        # Perform the search
-        try:
-            search = client.search(**search_params)
-            items = list(search.items())
-            
-            print(f"Found {len(items)} flight segments intersecting with the geometry")
-            
-            if items:
-                # Group results by collection for summary
-                collections_summary = {}
-                for item in items:
-                    collection_id = item.collection_id
-                    if collection_id not in collections_summary:
-                        collections_summary[collection_id] = 0
-                    collections_summary[collection_id] += 1
-                
-                print("Items by collection:")
-                for collection_id, count in collections_summary.items():
-                    print(f"  {collection_id}: {count} items")
-
-        except Exception as e:
-            print(f"Error performing spatial search: {e}")
+        if not items:
+            print("No items found for the given geometry")
             return []
+        
+        # Group results by collection for summary
+        collections_summary = {}
+        for item in items:
+            collection_id = item.get('collection')
+            if collection_id not in collections_summary:
+                collections_summary[collection_id] = 0
+            collections_summary[collection_id] += 1
+        
+        print("Items by collection:")
+        for collection_id, count in collections_summary.items():
+            print(f"  {collection_id}: {count} items")
         
         if data_product is None:
             # Return raw STAC items if no data product specified
@@ -863,24 +923,32 @@ class OPRConnection:
         # Load data for each item
         ds_list = []
         for item in items:
-            # Get data asset URL
-            data_asset = item.assets.get(data_product)
-            if not data_asset:
-                print(f"Warning: No {data_product} asset found for item {item.id}")
+            try:
+                # Load the frame using load_frame_stac
+                frame = self.load_frame_stac(item, data_product)
+                ds_list.append(frame)
+            except Exception as e:
+                print(f"Warning: Failed to load frame for item {item.get('id', 'unknown')}: {e}")
                 continue
-            
-            url = data_asset.href
-            
-            # Load the frame
-            frame = self.load_frame(url)
-            ds_list.append(frame)
         
         print(f"Successfully loaded {len(ds_list)} frames from spatial search")
 
         if trim_to_geometry:
+            # Convert geometry to shapely object if needed
+            if isinstance(geometry, str):
+                import json
+                geometry_dict = json.loads(geometry)
+                geom = shapely.geometry.shape(geometry_dict)
+            elif isinstance(geometry, dict):
+                geom = shapely.geometry.shape(geometry)
+            elif hasattr(geometry, '__geo_interface__'):
+                geom = shapely.geometry.shape(geometry.__geo_interface__)
+            else:
+                geom = geometry  # Assume it's already a shapely geometry
+            
             for i in range(len(ds_list)):
                 pts = shapely.points(ds_list[i]['Longitude'], ds_list[i]['Latitude'])
-                ds_list[i] = ds_list[i].isel(slow_time=geometry.contains(pts))
+                ds_list[i] = ds_list[i].isel(slow_time=geom.contains(pts))
 
         return ds_list
 
@@ -900,78 +968,72 @@ class OPRConnection:
         """
         # Get collection and flight information from the dataset attributes
         collection = ds.attrs.get('season')
-        date, flight = ds.attrs.get('segment').split('_')
-        date = int(date)
+        flight_id = ds.attrs.get('segment')
 
         # Query STAC collection for CSARP_layer files matching this specific flight
-        try:
                       
-            # Use query_flight_items to get only items from this specific flight
-            stac_items = self.query_flight_items(collection, date, flight)
-            
-            # Filter for items that have CSARP_layer assets
-            layer_items = []
-            for item in stac_items:
-                if 'CSARP_layer' in item.get('assets', {}):
-                    layer_items.append(item)
-            
-            if not layer_items:
-                print(f"No CSARP_layer files found for segment {segment} in collection {collection_id}")
-                return {}
-            
-            # Load each layer file and combine them
-            layer_frames = []
-            for item in layer_items:
-                layer_asset = item.get('assets', {}).get('CSARP_layer')
-                if layer_asset and 'href' in layer_asset:
-                    url = layer_asset['href']
-                    try:
-                        layer_ds = self.load_layers_file(url)
-                        layer_frames.append(layer_ds)
-                    except Exception as e:
-                        print(f"Warning: Failed to load layer file {url}: {e}")
-                        continue
-            
-            if not layer_frames:
-                print("No layer frames could be loaded")
-                return {}
-            
-            # Concatenate all layer frames along slow_time dimension
-            layers_flight = xr.concat(layer_frames, dim='slow_time', combine_attrs='drop_conflicts')
-            layers_flight = layers_flight.sortby('slow_time')
-            
-            # Trim to bounds of the original dataset
-            layers_flight = layers_flight.sel(slow_time=slice(ds['slow_time'].min(), ds['slow_time'].max()))
-            
-            # Split into separate layers by ID
-            layers = {}
-            
-            layer_ids = np.unique(layers_flight['id'])
-            
-            for i, layer_id in enumerate(layer_ids):
-                layer_id_int = int(layer_id)
-                layer_data = {}
-                
-                for var_name, var_data in layers_flight.data_vars.items():
-                    if 'layer' in var_data.dims:
-                        # Select the i-th layer from 2D variables (layer, slow_time)
-                        layer_data[var_name] = (['slow_time'], var_data.isel(layer=i).values)
-                    else:
-                        # 1D variables that don't have layer dimension
-                        layer_data[var_name] = var_data
-                
-                # Create coordinates (excluding layer coordinate)
-                coords = {k: v for k, v in layers_flight.coords.items() if k != 'layer'}
-                
-                # Create the layer dataset
-                layer_ds = xr.Dataset(layer_data, coords=coords)
-                layers[layer_id_int] = layer_ds
-            
-            return layers
-            
-        except Exception as e:
-            print(f"Error fetching layer files: {e}")
+        # Get items from this specific flight
+        stac_items = self.query_frames(seasons=[collection], flight_ids=[flight_id])
+
+        # Filter for items that have CSARP_layer assets
+        layer_items = []
+        for item in stac_items:
+            if 'CSARP_layer' in item.get('assets', {}):
+                layer_items.append(item)
+        
+        if not layer_items:
+            print(f"No CSARP_layer files found for segment {segment} in collection {collection_id}")
             return {}
+        
+        # Load each layer file and combine them
+        layer_frames = []
+        for item in layer_items:
+            layer_asset = item.get('assets', {}).get('CSARP_layer')
+            if layer_asset and 'href' in layer_asset:
+                url = layer_asset['href']
+                try:
+                    layer_ds = self.load_layers_file(url)
+                    layer_frames.append(layer_ds)
+                except Exception as e:
+                    print(f"Warning: Failed to load layer file {url}: {e}")
+                    continue
+        
+        if not layer_frames:
+            print("No layer frames could be loaded")
+            return {}
+        
+        # Concatenate all layer frames along slow_time dimension
+        layers_flight = xr.concat(layer_frames, dim='slow_time', combine_attrs='drop_conflicts')
+        layers_flight = layers_flight.sortby('slow_time')
+        
+        # Trim to bounds of the original dataset
+        layers_flight = layers_flight.sel(slow_time=slice(ds['slow_time'].min(), ds['slow_time'].max()))
+        
+        # Split into separate layers by ID
+        layers = {}
+        
+        layer_ids = np.unique(layers_flight['id'])
+        
+        for i, layer_id in enumerate(layer_ids):
+            layer_id_int = int(layer_id)
+            layer_data = {}
+            
+            for var_name, var_data in layers_flight.data_vars.items():
+                if 'layer' in var_data.dims:
+                    # Select the i-th layer from 2D variables (layer, slow_time)
+                    layer_data[var_name] = (['slow_time'], var_data.isel(layer=i).values)
+                else:
+                    # 1D variables that don't have layer dimension
+                    layer_data[var_name] = var_data
+            
+            # Create coordinates (excluding layer coordinate)
+            coords = {k: v for k, v in layers_flight.coords.items() if k != 'layer'}
+            
+            # Create the layer dataset
+            layer_ds = xr.Dataset(layer_data, coords=coords)
+            layers[layer_id_int] = layer_ds
+        
+        return layers
     
     def load_layers_file(self, url: str) -> xr.Dataset:
         """

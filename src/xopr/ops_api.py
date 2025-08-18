@@ -1,9 +1,15 @@
-# This quick prototype is heavily AI-generated and definitely needs human review.
+"""
+This module provides functions to interact with part of the Open Polar Server (OPS) API
+that do not require authentication.
+It includes functions to retrieve segment IDs, layer points, and segment metadata.
+"""
 
 import base64
 import requests
 import json
 import urllib.parse
+
+ops_base_url = "https://ops.cresis.ku.edu/ops"
 
 def get_segment_id_by_name(segment_name, season_name):
     """
@@ -11,14 +17,14 @@ def get_segment_id_by_name(segment_name, season_name):
     
     Args:
         segment_name (str): The segment name (e.g., "20240105_02")
-        season_name (str): The season name
+        season_name (str): The season name (e.g., "2022_Antarctica_BaslerMKB")
     
     Returns:
         dict: API response, or None if not found
     """
-    
-    url = "https://ops.cresis.ku.edu/ops/get/segment/metadata"
-    
+
+    url = f"{ops_base_url}/get/segment/metadata"
+
     # Prepare the data payload using segment name and season
     data_payload = {
         "properties": {
@@ -72,9 +78,9 @@ def get_layer_points(segment_id=None, segment_name=None, season_name=None, locat
     Returns:
         dict: API response as JSON containing layer points data
     """
-    
-    url = "https://ops.cresis.ku.edu/ops/get/layer/points"
-    
+
+    url = f"{ops_base_url}/get/layer/points"
+
     # Prepare the data payload - support both segment_id and segment_name approaches
     if segment_id is not None:
         data_payload = {
@@ -145,9 +151,9 @@ def get_segment_metadata(segment_id=None, segment_name=None, season_name=None):
     Returns:
         dict: API response as JSON
     """
-    
-    url = "https://ops.cresis.ku.edu/ops/get/segment/metadata"
-    
+
+    url = f"{ops_base_url}/get/segment/metadata"
+
     # Prepare the data payload - support both segment_id and segment_name approaches
     if segment_id is not None:
         data_payload = {
