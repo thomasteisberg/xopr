@@ -321,8 +321,8 @@ def main():
     parser.add_argument(
         "--data-root",
         type=Path,
-        default=Path("/home/thomasteisberg/Documents/opr/opr_test_dataset_1"),
-        help="Root directory containing campaign data (default: test dataset)"
+        default=Path("/kucresis/scratch/dataproducts/public/data/rds"),
+        help="Root directory containing campaign data"
     )
     parser.add_argument(
         "--max-items",
@@ -333,7 +333,8 @@ def main():
     parser.add_argument(
         "--campaigns",
         nargs="*",
-        help="Specific campaigns to process (default: all campaigns)"
+        help="Specific campaigns to process (default: all campaigns)",
+        default=['2016_Antarctica_DC8', '2017_Antarctica_P3', '2017_Antarctica_Basler', '2018_Antarctica_DC8', '2019_Antarctica_GV', '2022_Antarctica_BaslerMKB', '2023_Antarctica_BaslerMKB']
     )
     parser.add_argument(
         "--output-dir",

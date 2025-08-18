@@ -265,7 +265,7 @@ def discover_flight_lines(campaign_path: Path, discovery_data_product: str = "CS
                 flight_num = parts[1]
                 
                 data_files = {
-                    discovery_data_product: {f.name: str(f) for f in flight_dir.glob("*.mat")}
+                    discovery_data_product: {f.name: str(f) for f in flight_dir.glob("*.mat") if not "_img" in f.name}
                 }
 
                 # Include extra data products if specified
