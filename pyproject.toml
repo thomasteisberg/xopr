@@ -1,10 +1,10 @@
 [build-system]
-requires = ["uv_build"]
-build-backend = "uv_build"
+requires = ["setuptools>=64", "setuptools-scm>=8", "uv_build"]
+build-backend = "setuptools.build_meta"
 
 [project]
 name = "xopr"
-version = "0.1.0"
+dynamic = ["version"]
 description = "Access Open Polar Radar data in the Python data ecosystem"
 readme = "README.md"
 requires-python = ">=3.10"
