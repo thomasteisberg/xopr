@@ -3,14 +3,17 @@ import h5py
 import numpy as np
 
 def dereference_h5value(value, h5file):
-    if isinstance(value, Iterable):
-        return [dereference_h5value(v, h5file=h5file) for v in value]
-    elif isinstance(value, h5py.Group):
-        return decode_matlab_variable(value)
-    elif isinstance(value, h5py.Reference):
+    if isinstance(value, h5py.Reference):
         return dereference_h5value(h5file[value], h5file=h5file)
-    elif isinstance(value, h5py.Dataset):
-        return np.squeeze(value[:])
+    elif isinstance(value, h5py.Group):
+        # Pass back to decode_matlab_variable to handle groups
+        return decode_matlab_variable(value, h5file=h5file)
+    elif isinstance(value, Iterable):
+        v = [dereference_h5value(v, h5file=h5file) for v in value]
+        try:
+            return np.squeeze(np.array(v))
+        except:
+            return v
     elif isinstance(value, np.number):
         return value.item()
     else:
@@ -26,13 +29,16 @@ def decode_matlab_variable(h5var, skip_variables=False, debug_path="", skip_erro
     matlab_class = h5var.attrs.get('MATLAB_class', None)
     
     if matlab_class and matlab_class == b'cell':
-        return np.squeeze(dereference_h5value(h5var[:], h5file=h5file))
+        return dereference_h5value(h5var[:], h5file=h5file)
     elif matlab_class and matlab_class == b'char':
         return h5var[:].astype(dtype=np.uint8).tobytes().decode('utf-8')
     elif isinstance(h5var, (h5py.Group, h5py.File)):
         attrs = {}
         for k in h5var:
             if k.startswith('#'):
+                continue
+            if 'api_key' in k:
+                attrs[k] = "API_KEY_REMOVED"
                 continue
             if isinstance(h5var[k], h5py.Dataset):
                 if not skip_variables:
