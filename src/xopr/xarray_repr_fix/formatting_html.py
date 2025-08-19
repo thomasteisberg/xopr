@@ -25,7 +25,7 @@ from xarray.core.options import OPTIONS, _get_boolean_with_default
 
 STATIC_FILES = (
     ("xarray.static.html", "icons-svg-inline.html"),
-    ("xarray.static.css", "style.css"),
+    ("xopr.xarray_repr_fix", "style.css"),
 )
 
 if TYPE_CHECKING:
@@ -67,26 +67,57 @@ def format_dims(dim_sizes, dims_with_index) -> str:
     return f"<ul class='xr-dim-list'>{dims_li}</ul>"
 
 
+def summarize_attrs_inner(attrs) -> str:
+    attrs_dl = ""
+    for k, v in attrs.items():
+        if isinstance(v, dict):
+            attrs_dl += f"<dt><span>{escape(str(k))} :</span></dt><dd>"
+            attrs_dl += summarize_attrs_inner(v)
+            attrs_dl += "</dd>"
+        else:
+            attrs_dl += f"<dt><span>{escape(str(k))} :</span></dt><dd>{escape(str(v))}</dd>"
+
+    return attrs_dl
+
+
 def summarize_attrs(attrs) -> str:
+    # === Orig:
     # attrs_dl = "".join(
     #     f"<dt><span>{escape(str(k))} :</span></dt><dd>{escape(str(v))}</dd>"
     #     for k, v in attrs.items()
     # )
+    # === V2:
+    # attrs_dl = ""
+    # for k, v in attrs.items():
+    #     if isinstance(v, dict):
+    #         attrs_dl += "<span class='xr-section-item'>"
+    #         attrs_dl += collapsible_section(
+    #             name=escape(str(k)),
+    #             inline_details="",
+    #             details=summarize_attrs(v),
+    #             n_items=len(v),
+    #             enabled=True,
+    #             collapsed=True,
+    #         )
+    #         attrs_dl += "</span>"
+    #     else:
+    #         attrs_dl += f"<dt><span>{escape(str(k))} :</span></dt><dd>{escape(str(v))}</dd>"
+
     attrs_dl = ""
     for k, v in attrs.items():
         if isinstance(v, dict):
-            attrs_dl += "<span class='xr-section-item'>"
-            attrs_dl += collapsible_section(
-                name=escape(str(k)),
-                inline_details="",
-                details=summarize_attrs(v),
-                n_items=len(v),
-                enabled=True,
-                collapsed=True,
-            )
-            attrs_dl += "</span>"
+            attr_id = "attrs-" + str(uuid.uuid4())
+
+            attrs_dl += f"<div class='xr-attr-item'>"
+            attrs_dl += f"<input id='{attr_id}' class='xr-attr-in' type='checkbox'>"
+            attrs_dl += f"<label class='xr-attr-nested' for='{attr_id}'>{escape(str(k))} : "
+            attrs_dl += f"<span>({len(v)})</span></label>"
+            attrs_dl += "<span class='xr-attr-nested-inner'>"
+            attrs_dl += summarize_attrs(v)
+            attrs_dl += "</span></div>"
         else:
             attrs_dl += f"<dt><span>{escape(str(k))} :</span></dt><dd>{escape(str(v))}</dd>"
+
 
     return f"<dl class='xr-attrs'>{attrs_dl}</dl>"
 
