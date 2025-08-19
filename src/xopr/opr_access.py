@@ -14,7 +14,8 @@ import pystac_client
 import h5py
 
 from xopr.cf_units import apply_cf_compliant_attrs
-from xopr.matlab_attribute_utils import decode_matlab_variable
+from xopr.matlab_attribute_utils import decode_hdf5_matlab_variable, extract_legacy_mat_attributes
+from xopr.util import merge_dicts_no_conflicts
 import xopr.ops_api
 
 class OPRConnection:
@@ -452,7 +453,13 @@ class OPRConnection:
 
         # Add the rest of the Matlab parameters
         if filetype == 'hdf5':
-            ds.attrs.update(decode_matlab_variable(h5py.File(file, 'r'), skip_variables=True, skip_errors=True))
+            ds.attrs.update(decode_hdf5_matlab_variable(h5py.File(file, 'r'),
+                                                        skip_variables=True,
+                                                        skip_errors=True))
+        elif filetype == 'matlab':
+            ds.attrs.update(extract_legacy_mat_attributes(file,
+                                                          skip_keys=ds.keys(),
+                                                          skip_errors=True))
 
         return ds
     
@@ -773,7 +780,7 @@ class OPRConnection:
         # Merge frames for each flight
         merged_flights = []
         for flight_id, flight_frames in flights.items():
-            merged_flight = xr.concat(flight_frames, dim='slow_time', combine_attrs='drop').sortby('slow_time')
+            merged_flight = xr.concat(flight_frames, dim='slow_time', combine_attrs=merge_dicts_no_conflicts).sortby('slow_time')
             merged_flights.append(merged_flight)
 
         return merged_flights
