@@ -11,8 +11,10 @@ import scipy.io
 import geopandas as gpd
 import shapely
 import pystac_client
+import h5py
 
 from xopr.cf_units import apply_cf_compliant_attrs
+from xopr.matlab_attribute_utils import decode_matlab_variable
 import xopr.ops_api
 
 class OPRConnection:
@@ -394,10 +396,13 @@ class OPRConnection:
             file = fsspec.open_local(f"simplecache::{url}", **self.fsspec_cache_kwargs)
 
 
+        filetype = None
         try:
             ds = self._load_frame_hdf5(file)
+            filetype = 'hdf5'
         except OSError:
             ds = self._load_frame_matlab(file)
+            filetype = 'matlab'
 
         # Add the source URL as an attribute
         ds.attrs['source_url'] = url
@@ -444,6 +449,10 @@ class OPRConnection:
                         ds.attrs['ror'] = result_data['rors']
                     if 'funding_sources' in result_data:
                         ds.attrs['funder_text'] = result_data['funding_sources']
+
+        # Add the rest of the Matlab parameters
+        if filetype == 'hdf5':
+            ds.attrs.update(decode_matlab_variable(h5py.File(file, 'r'), skip_variables=True, skip_errors=True))
 
         return ds
     
