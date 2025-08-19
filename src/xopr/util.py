@@ -1,0 +1,124 @@
+import xarray as xr
+import numpy as np
+import pandas as pd
+import itertools
+from typing import Dict, Any, List, Sequence, TypeVar
+
+T = TypeVar("T")
+
+def dict_equiv(first: dict, second: dict) -> bool:
+    """Compare two dictionaries for equivalence (identity or equality).
+    
+    Args:
+        first: First dictionary to compare
+        second: Second dictionary to compare
+        
+    Returns:
+        True if dictionaries are identical or have the same keys with
+        equivalent values (as determined by the equivalent function), False otherwise
+    """
+    if first is second:
+        return True
+    if len(first) != len(second):
+        return False
+    for key in first:
+        if key not in second:
+            return False
+        if not equivalent(first[key], second[key]):
+            return False
+    return True
+
+def list_equiv(first: Sequence[T], second: Sequence[T]) -> bool:
+    """Compare two sequences for element-wise equivalence.
+    
+    Args:
+        first: First sequence to compare
+        second: Second sequence to compare
+        
+    Returns:
+        True if sequences have equal length and all corresponding elements
+        are equivalent (as determined by the equivalent function), False otherwise
+    """
+    if len(first) != len(second):
+        return False
+    return all(itertools.starmap(equivalent, zip(first, second, strict=True)))
+
+def equivalent(first, second) -> bool:
+    """Compare two objects for equivalence (identity or equality).
+    
+    Handles different data types:
+    - Arrays: Uses numpy.array_equal for comparison
+    - Lists/sequences: Recursively compares all elements
+    - Dictionaries: Compares keys and values recursively
+    - Other types: Uses equality operator or pandas null checking
+    
+    Args:
+        first: First object to compare
+        second: Second object to compare
+        
+    Returns:
+        True if objects are identical, equal, or both are null/NaN, False otherwise
+    """
+    
+    from xarray.core import duck_array_ops
+
+    if first is second:
+        return True
+    if isinstance(first, np.ndarray) or isinstance(second, np.ndarray):
+        try:
+            return np.array_equal(first, second)
+        except Exception:
+            return False
+    if isinstance(first, list) or isinstance(second, list):
+        return list_equiv(first, second)  # type: ignore[arg-type]
+    if isinstance(first, dict) or isinstance(second, dict): # Added: Also supports dictionaries
+        return dict_equiv(first, second)
+    return (first == second) or (pd.isnull(first) and pd.isnull(second))  # type: ignore[call-overload]
+
+def merge_dicts_no_conflicts(dicts: List[Dict[str, Any]], context=None) -> Dict[str, Any]:
+    """Merge a list of dictionaries, dropping conflicting keys.
+    
+    This function is designed to be passed to xarray's combine_attrs parameter.
+    It merges dictionaries by keeping only keys where all values are equivalent.
+    For nested dictionaries, merging is applied recursively.
+    
+    Args:
+        dicts: List of dictionaries to merge
+        context: Optional context parameter (unused but included for xarray compatibility)
+        
+    Returns:
+        Dictionary containing only non-conflicting key-value pairs from input dictionaries.
+        Keys with conflicting values across dictionaries are dropped.
+        
+    Examples:
+        >>> dicts = [{'a': 1, 'b': 2}, {'a': 1, 'b': 3}]
+        >>> merge_dicts_no_conflicts(dicts)
+        {'a': 1}  # 'b' dropped due to conflict
+    """
+    merged = {}
+    # Create set of all keys across dictionaries
+    all_keys = set().union(*(d.keys() for d in dicts))
+    for key in all_keys:
+        # Collect values for the current key from all dictionaries
+        values = [d.get(key) for d in dicts if key in d]
+        if len(values) == 1:
+            merged[key] = values[0]  # Only one value, no conflict
+        else:
+            # Check if all values have the same type
+            types = set(type(v) for v in values if v is not None)
+            if len(types) > 1:
+                continue  # Skip conflicting keys
+            if isinstance(values[0], dict):
+                # If values are dictionaries, merge them recursively
+                merged_dict = merge_dicts_no_conflicts(values)
+                if len(merged_dict) > 0:
+                    merged[key] = merged_dict
+            else:
+                all_equiv = True
+                for idx in range(1, len(values)):
+                    if not equivalent(values[0], values[idx]):
+                        all_equiv = False
+                        break
+                if all_equiv:
+                    merged[key] = values[0]
+    return merged
