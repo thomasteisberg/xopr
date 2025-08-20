@@ -13,10 +13,10 @@ import shapely
 import pystac_client
 import h5py
 
-from xopr.cf_units import apply_cf_compliant_attrs
-from xopr.matlab_attribute_utils import decode_hdf5_matlab_variable, extract_legacy_mat_attributes
-from xopr.util import merge_dicts_no_conflicts
-import xopr.ops_api
+from .cf_units import apply_cf_compliant_attrs
+from .matlab_attribute_utils import decode_hdf5_matlab_variable, extract_legacy_mat_attributes
+from .util import merge_dicts_no_conflicts
+from . import ops_api
 
 class OPRConnection:
     def __init__(self,
@@ -432,7 +432,7 @@ class OPRConnection:
             )
 
             # Load citation information
-            result = xopr.ops_api.get_segment_metadata(segment_name=segment, season_name=season)
+            result = ops_api.get_segment_metadata(segment_name=segment, season_name=season)
             if result:
                 if isinstance(result['data'], str):
                     warnings.warn(f"Warning: Unexpected result from ops_api: {result['data']}", UserWarning)
@@ -1255,7 +1255,7 @@ class OPRConnection:
         else:
             raise ValueError("Dataset does not belong to a recognized location (Antarctica or Greenland).")
         
-        layer_points = xopr.ops_api.get_layer_points(
+        layer_points = ops_api.get_layer_points(
             segment_name=ds.attrs['segment'],
             season_name=ds.attrs['season'],
             location=location
