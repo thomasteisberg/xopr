@@ -9,15 +9,15 @@ def apply_cf_compliant_attrs(ds):
     """
     Apply CF-compliant units and comments to radar echogram dataset variables.
     
-    Parameters:
-    -----------
+    Parameters
+    ----------
     ds : xarray.Dataset
-        The input radar echogram dataset
-        
-    Returns:
-    --------
+        The input radar echogram dataset.
+
+    Returns
+    -------
     xarray.Dataset
-        Dataset with CF-compliant attributes applied
+        Dataset with CF-compliant attributes applied.
     """
     
     # Create a copy to avoid modifying the original dataset

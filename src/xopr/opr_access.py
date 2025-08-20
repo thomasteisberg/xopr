@@ -1290,6 +1290,4 @@ class OPRConnection:
             layers[layer_id] = l
 
         return layers
-            
-
-        #return ds
+        
