@@ -81,6 +81,8 @@ def extract_item_metadata(mat_file_path: Union[str, Path]) -> Dict[str, Any]:
     if not mat_file_path.exists():
         raise FileNotFoundError(f"MAT file not found: {mat_file_path}")
         
+    opr = OPRConnection(cache_dir="radar_cache")
+
     ds = opr.load_frame_url(file_url)
 
     date = ds['slow_time'].mean()
