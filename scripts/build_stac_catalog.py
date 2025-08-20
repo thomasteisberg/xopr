@@ -29,9 +29,12 @@ def print_catalog_structure(catalog: pystac.Catalog, indent: int = 0) -> None:
     """
     Print a hierarchical view of the catalog structure.
 
-    Args:
-        catalog: STAC catalog to print
-        indent: Current indentation level
+    Parameters
+    ----------
+    catalog : pystac.Catalog
+        STAC catalog to print
+    indent : int, optional
+        Current indentation level, by default 0
     """
     prefix = "  " * indent
     print(f"{prefix}📁 Catalog: {catalog.id}")
@@ -108,6 +111,30 @@ def build_limited_catalog(
 ) -> pystac.Catalog:
     """
     Build STAC catalog with limits for faster processing.
+
+    Parameters
+    ----------
+    data_root : Path
+        Root directory containing campaign data
+    output_path : Path
+        Directory where catalog will be saved
+    catalog_id : str, optional
+        Catalog ID, by default "OPR"
+    data_product : str, optional
+        Primary data product to process, by default "CSARP_standard"
+    extra_data_products : List[str], optional
+        Additional data products to include, by default ['CSARP_layer', 'CSARP_qlook']
+    base_url : str, optional
+        Base URL for asset hrefs, by default "https://data.cresis.ku.edu/data/rds/"
+    max_items : int, optional
+        Maximum number of items to process, by default 10
+    campaign_filter : List[str], optional
+        Specific campaigns to process, by default None (all campaigns)
+
+    Returns
+    -------
+    pystac.Catalog
+        The built STAC catalog
     """
     catalog = create_catalog(catalog_id=catalog_id)
     campaigns = discover_campaigns(data_root)
@@ -341,9 +368,12 @@ def export_to_geoparquet(catalog: pystac.Catalog, output_file: Path) -> None:
     """
     Export catalog items to geoparquet format.
 
-    Args:
-        catalog: STAC catalog to export
-        output_file: Output parquet file path
+    Parameters
+    ----------
+    catalog : pystac.Catalog
+        STAC catalog to export
+    output_file : Path
+        Output parquet file path
     """
     print(f"\n📦 Exporting to geoparquet: {output_file}")
 
@@ -379,9 +409,12 @@ def export_collections_to_separate_parquet(
     Export each collection to a separate geoparquet file for
     stac-fastapi-geoparquet.
 
-    Args:
-        catalog: STAC catalog to export
-        output_dir: Output directory for parquet files
+    Parameters
+    ----------
+    catalog : pystac.Catalog
+        STAC catalog to export
+    output_dir : Path
+        Output directory for parquet files
     """
     print(
         f"\n📦 Exporting collections to separate geoparquet files: "
@@ -440,9 +473,12 @@ def export_collections_json(
     Export collections metadata to collections.json for
     stac-fastapi-geoparquet.
 
-    Args:
-        catalog: STAC catalog to export
-        output_file: Output collections.json file path
+    Parameters
+    ----------
+    catalog : pystac.Catalog
+        STAC catalog to export
+    output_file : Path
+        Output collections.json file path
     """
     print(f"\n📄 Exporting collections metadata: {output_file}")
 
@@ -499,9 +535,12 @@ def export_to_json_catalog(catalog: pystac.Catalog, output_file: Path) -> None:
     """
     Export complete catalog with all items to a single JSON file.
 
-    Args:
-        catalog: STAC catalog to export
-        output_file: Output JSON file path
+    Parameters
+    ----------
+    catalog : pystac.Catalog
+        STAC catalog to export
+    output_file : Path
+        Output JSON file path
     """
     print(f"\n📄 Exporting to JSON catalog: {output_file}")
 

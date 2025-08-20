@@ -52,13 +52,13 @@ def extract_item_metadata(mat_file_path: Union[str, Path], max_geometry_path_len
     ----------
     mat_file_path : Union[str, Path]
         Path to MAT/HDF5 file containing GPS time and coordinate data.
-    max_geometry_path_length : int, default 1000
+    max_geometry_path_length : int, optional
         Maximum number of points to include in geometry. If file contains
         more points, they will be downsampled.
         
     Returns
     -------
-    dict
+    Dict[str, Any]
         Dictionary containing extracted metadata with keys:
         - 'geom' : shapely.geometry.LineString
             Flight path geometry.
@@ -156,7 +156,7 @@ def discover_campaigns(data_root: Union[str, Path]) -> List[Dict[str, str]]:
         
     Returns
     -------
-    list of dict
+    List[Dict[str, str]]
         List of campaign metadata dictionaries with keys:
         
         - 'name' : str
@@ -212,7 +212,7 @@ def discover_data_products(campaign_path: Union[str, Path]) -> List[str]:
         
     Returns
     -------
-    list of str
+    List[str]
         List of data product names (e.g., ["CSARP_standard", "CSARP_layer"]).
         Names follow the pattern "CSARP_*".
     """
@@ -245,7 +245,7 @@ def discover_flight_lines(campaign_path: Union[str, Path], discovery_data_produc
         
     Returns
     -------
-    list of dict
+    List[Dict[str, str]]
         List of flight line metadata dictionaries with keys:
         
         - 'flight_id' : str
