@@ -89,6 +89,7 @@ def extract_item_metadata(mat_file_path: Union[str, Path]) -> Dict[str, Any]:
         'citation': cite
     }
 
+
 def discover_campaigns(data_root: Union[str, Path]) -> List[Dict[str, str]]:
     """
     Discover all campaigns in the data directory.
@@ -174,7 +175,9 @@ def discover_data_products(campaign_path: Union[str, Path]) -> List[str]:
     return sorted(products)
 
 
-def discover_flight_lines(campaign_path: Union[str, Path], discovery_data_product: str = "CSARP_standard", extra_data_products : list = []) -> List[Dict[str, str]]:
+def discover_flight_lines(campaign_path: Union[str, Path],
+                          discovery_data_product: str = "CSARP_standard",
+                          extra_data_products: list = None) -> List[Dict[str, str]]:
     """
     Discover flight lines for a specific data product within a campaign.
 
@@ -230,7 +233,10 @@ def discover_flight_lines(campaign_path: Union[str, Path], discovery_data_produc
                 flight_num = parts[1]
 
                 data_files = {
-                    discovery_data_product: {f.name: str(f) for f in flight_dir.glob("*.mat") if not "_img" in f.name}
+                    discovery_data_product: {
+                        f.name: str(f) for f in flight_dir.glob("*.mat")
+                        if "_img" not in f.name
+                    }
                 }
 
                 # Include extra data products if specified
