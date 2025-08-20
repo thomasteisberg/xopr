@@ -2,14 +2,10 @@
 Metadata extraction utilities for OPR STAC catalog creation.
 """
 
-import datetime as dt
 import re
 from pathlib import Path
 from typing import Dict, List, Any, Union
 
-import h5py
-import numpy as np
-import scipy.io
 import geopandas as gpd
 import shapely
 from shapely.geometry import LineString, Point, box
@@ -17,37 +13,11 @@ from shapely.geometry import LineString, Point, box
 from xopr.opr_access import OPRConnection
 
 
-def get_mat_file_type(file_path: Union[str, Path]) -> str:
-    """
-    Figure out if a MAT file is in HDF5 format or older MATLAB format.
-
-    Parameters
-    ----------
-    file_path : Union[str, Path]
-        Path to the MAT file to analyze.
-    
-    Returns
-    -------
-    str
-        MIME type string: 'application/x-hdf5' if HDF5 format, 
-        'application/x-matlab-data' if older MATLAB format.
-    """
-    # Convert string to Path if necessary
-    if isinstance(file_path, str):
-        file_path = Path(file_path)
-
-    try:
-        f = h5py.File(file_path, 'r')
-        return 'application/x-hdf5'
-    except:
-        f = scipy.io.loadmat(file_path, mat_dtype=True)
-        return 'application/x-matlab-data'
-
 
 def extract_item_metadata(mat_file_path: Union[str, Path]) -> Dict[str, Any]:
     """
     Extract spatial and temporal metadata from MAT/HDF5 file.
-    
+
     Parameters
     ----------
     mat_file_path : Union[str, Path]
@@ -55,7 +25,7 @@ def extract_item_metadata(mat_file_path: Union[str, Path]) -> Dict[str, Any]:
     max_geometry_path_length : int, optional
         Maximum number of points to include in geometry. If file contains
         more points, they will be downsampled.
-        
+
     Returns
     -------
     Dict[str, Any]
@@ -66,7 +36,7 @@ def extract_item_metadata(mat_file_path: Union[str, Path]) -> Dict[str, Any]:
             Bounding box of flight path.
         - 'date' : datetime.datetime
             Mean acquisition datetime.
-        
+
     Raises
     ------
     FileNotFoundError
@@ -77,13 +47,13 @@ def extract_item_metadata(mat_file_path: Union[str, Path]) -> Dict[str, Any]:
     # Convert string to Path if necessary
     if isinstance(mat_file_path, str):
         mat_file_path = Path(mat_file_path)
-    
+
     if not mat_file_path.exists():
         raise FileNotFoundError(f"MAT file not found: {mat_file_path}")
-        
+
     opr = OPRConnection(cache_dir="radar_cache")
 
-    ds = opr.load_frame_url(file_url)
+    ds = opr.load_frame_url(mat_file_path)
 
     date = ds['slow_time'].mean()
 
@@ -122,17 +92,17 @@ def extract_item_metadata(mat_file_path: Union[str, Path]) -> Dict[str, Any]:
 def discover_campaigns(data_root: Union[str, Path]) -> List[Dict[str, str]]:
     """
     Discover all campaigns in the data directory.
-    
+
     Parameters
     ----------
     data_root : Union[str, Path]
         Root directory containing campaign subdirectories.
-        
+
     Returns
     -------
     List[Dict[str, str]]
         List of campaign metadata dictionaries with keys:
-        
+
         - 'name' : str
             Campaign directory name (e.g., "2016_Antarctica_DC8").
         - 'year' : str
@@ -143,7 +113,7 @@ def discover_campaigns(data_root: Union[str, Path]) -> List[Dict[str, str]]:
             Aircraft type.
         - 'path' : str
             Full path to campaign directory.
-            
+
     Raises
     ------
     FileNotFoundError
@@ -151,14 +121,14 @@ def discover_campaigns(data_root: Union[str, Path]) -> List[Dict[str, str]]:
     """
     campaign_pattern = re.compile(r'^(\d{4})_([^_]+)_([^_]+)$')
     campaigns = []
-    
+
     # Convert string to Path if necessary
     if isinstance(data_root, str):
         data_root = Path(data_root)
-    
+
     if not data_root.exists():
         raise FileNotFoundError(f"Data root directory not found: {data_root}")
-    
+
     for item in data_root.iterdir():
         if item.is_dir():
             match = campaign_pattern.match(item.name)
@@ -171,19 +141,19 @@ def discover_campaigns(data_root: Union[str, Path]) -> List[Dict[str, str]]:
                     'aircraft': aircraft,
                     'path': str(item)
                 })
-    
+
     return sorted(campaigns, key=lambda x: (x['year'], x['name']))
 
 
 def discover_data_products(campaign_path: Union[str, Path]) -> List[str]:
     """
     Discover available data products in a campaign directory.
-    
+
     Parameters
     ----------
     campaign_path : Union[str, Path]
         Path to campaign directory.
-        
+
     Returns
     -------
     List[str]
@@ -193,21 +163,21 @@ def discover_data_products(campaign_path: Union[str, Path]) -> List[str]:
     # Convert string to Path if necessary
     if isinstance(campaign_path, str):
         campaign_path = Path(campaign_path)
-    
+
     products = []
     csarp_pattern = re.compile(r'^CSARP_\w+$')
-    
+
     for item in campaign_path.iterdir():
         if item.is_dir() and csarp_pattern.match(item.name):
             products.append(item.name)
-    
+
     return sorted(products)
 
 
 def discover_flight_lines(campaign_path: Union[str, Path], discovery_data_product: str = "CSARP_standard", extra_data_products : list = []) -> List[Dict[str, str]]:
     """
     Discover flight lines for a specific data product within a campaign.
-    
+
     Parameters
     ----------
     campaign_path : Union[str, Path]
@@ -216,12 +186,12 @@ def discover_flight_lines(campaign_path: Union[str, Path], discovery_data_produc
         Data product name to look for to find eligible flights.
     extra_data_products : list of str, default []
         Additional data products to link to flight lines.
-        
+
     Returns
     -------
     List[Dict[str, str]]
         List of flight line metadata dictionaries with keys:
-        
+
         - 'flight_id' : str
             Flight line identifier (e.g., "20161014_03").
         - 'date' : str
@@ -229,9 +199,9 @@ def discover_flight_lines(campaign_path: Union[str, Path], discovery_data_produc
         - 'flight_num' : str
             Flight number string.
         - 'data_files' : dict
-            Dictionary mapping data product names to dictionaries of 
+            Dictionary mapping data product names to dictionaries of
             {filename: filepath} for MAT files.
-            
+
     Raises
     ------
     FileNotFoundError
@@ -240,15 +210,15 @@ def discover_flight_lines(campaign_path: Union[str, Path], discovery_data_produc
     # Convert string to Path if necessary
     if isinstance(campaign_path, str):
         campaign_path = Path(campaign_path)
-    
+
     product_path = campaign_path / discovery_data_product
 
     if not product_path.exists():
         raise FileNotFoundError(f"Data product directory not found: {product_path}")
-    
+
     flight_pattern = re.compile(r'^(\d{8}_\d+)$')
     flights = []
-    
+
     for flight_dir in product_path.iterdir():
         if flight_dir.is_dir():
             match = flight_pattern.match(flight_dir.name)
@@ -258,7 +228,7 @@ def discover_flight_lines(campaign_path: Union[str, Path], discovery_data_produc
                 parts = flight_id.split('_')
                 date_part = parts[0]
                 flight_num = parts[1]
-                
+
                 data_files = {
                     discovery_data_product: {f.name: str(f) for f in flight_dir.glob("*.mat") if not "_img" in f.name}
                 }
@@ -277,5 +247,5 @@ def discover_flight_lines(campaign_path: Union[str, Path], discovery_data_produc
                         'flight_num': flight_num,
                         'data_files': data_files
                     })
-    
+
     return sorted(flights, key=lambda x: x['flight_id'])
