@@ -39,6 +39,9 @@ docs = [
     "hvplot",
     "jupyter_bokeh",
 ]
+test = [
+    "pytest"
+]
 
 [tool.hatch.version]
 source = "vcs"

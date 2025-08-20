@@ -528,7 +528,7 @@ class OPRConnection:
             The loaded radar frame as an xarray Dataset.
         """
         
-        m = scipy.io.loadmat(file, mat_dtype=True)
+        m = scipy.io.loadmat(file, mat_dtype=False)
 
         key_dims = {
             'Time': ('twtt',),
