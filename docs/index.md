@@ -15,13 +15,13 @@ We welcome your feedback and contributions. If you run into problems or have ide
 For now, xopr is available only directly from source on GitHub. To install xopr, use:
 
 :::{code}
-pip install git+https://github.com/thomasteisberg/xopr
+pip install xopr
 :::
 
 Or, using [uv](https://docs.astral.sh/uv/):
 
 :::{code}
-uv add "xopr @ git+https://github.com/thomasteisberg/xopr"
+uv add xopr
 :::
 
 ## Getting Started
@@ -30,9 +30,9 @@ Minimal example of loading and plotting a single frame of radar data:
 
 ```python
 import numpy as np
-import xopr.opr_access
+import xopr
 
-opr = xopr.opr_access.OPRConnection()
+opr = xopr.OPRConnection()
 
 frames = opr.load_flight("2022_Antarctica_BaslerMKB", flight_id="20221228_01", data_product="CSARP_standard", max_items=1)
 
