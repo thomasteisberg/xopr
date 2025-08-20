@@ -453,10 +453,12 @@ class OPRConnection:
 
         # Add the rest of the Matlab parameters
         if filetype == 'hdf5':
+            ds.attrs['mimetype'] = 'application/x-hdf5'
             ds.attrs.update(decode_hdf5_matlab_variable(h5py.File(file, 'r'),
                                                         skip_variables=True,
                                                         skip_errors=True))
         elif filetype == 'matlab':
+            ds.attrs['mimetype'] = 'application/x-matlab-data'
             ds.attrs.update(extract_legacy_mat_attributes(file,
                                                           skip_keys=ds.keys(),
                                                           skip_errors=True))
