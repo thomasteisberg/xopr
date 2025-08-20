@@ -5,7 +5,7 @@ Spot test basic loading of OPR data
 import pytest
 import numpy as np
 import xarray as xr
-import xopr.opr_access as xopr
+import xopr
 from xopr.util import equivalent
 
 test_flights = [

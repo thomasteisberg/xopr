@@ -22,13 +22,18 @@
 # SOFTWARE.
 
 """
-Add a docstring here for the init module.
+xopr is a Python library designed to make accessing Open Polar Radar's data
+archives easy, scalable, and reproducible.
 
-This might include a very brief description of the package,
-its purpose, and any important notes.
+See https://github.com/thomasteisberg/xopr for details.
 """
 
 try:
     from ._version import __version__
 except ImportError:
     __version__ = "unknown"
+
+from .opr_access import OPRConnection
+
+# Temporary fix to provide a nicer _repr_html_ for nested attributes dictionaries
+from .xarray_repr_fix.xopr_accessor import XoprAccessor
