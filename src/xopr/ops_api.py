@@ -13,14 +13,19 @@ ops_base_url = "https://ops.cresis.ku.edu/ops"
 
 def get_segment_id_by_name(segment_name, season_name):
     """
-    Get segment ID by segment name and season
-    
-    Args:
-        segment_name (str): The segment name (e.g., "20240105_02")
-        season_name (str): The season name (e.g., "2022_Antarctica_BaslerMKB")
-    
-    Returns:
-        dict: API response, or None if not found
+    Get segment ID by segment name and season.
+
+    Parameters
+    ----------
+    segment_name : str
+        The segment name (e.g., "20230109_01").
+    season_name : str
+        The season name (e.g., "2022_Antarctica_BaslerMKB").
+
+    Returns
+    -------
+    dict or None
+        API response containing segment metadata if found, None otherwise.
     """
 
     url = f"{ops_base_url}/get/segment/metadata"
@@ -66,17 +71,30 @@ def get_segment_id_by_name(segment_name, season_name):
 
 def get_layer_points(segment_id=None, segment_name=None, season_name=None, location="arctic", layer_names=None):
     """
-    Get layer points for a segment from the OPS API
-    
-    Args:
-        segment_id (int, optional): The segment ID to query
-        segment_name (str, optional): The segment name (alternative to segment_id)
-        season_name (str, optional): The season name (required if using segment_name)
-        location (str): Location name (default: "arctic")
-        layer_names (list, optional): List of layer names to retrieve (default: all layers)
-    
-    Returns:
-        dict: API response as JSON containing layer points data
+    Get layer points for a segment from the OPS API.
+
+    Parameters
+    ----------
+    segment_id : int, optional
+        The segment ID to query. Either this or both segment_name and season_name must be provided.
+    segment_name : str, optional
+        The segment name (alternative to segment_id).
+    season_name : str, optional
+        The season name (required if using segment_name).
+    location : str, default "arctic"
+        Location name for the query.
+    layer_names : list of str, optional
+        List of layer names to retrieve. If None, retrieves all layers.
+
+    Returns
+    -------
+    dict or None
+        API response as JSON containing layer points data, or None if request fails.
+        
+    Raises
+    ------
+    ValueError
+        If neither segment_id nor both segment_name and season_name are provided.
     """
 
     url = f"{ops_base_url}/get/layer/points"
@@ -141,15 +159,26 @@ def get_layer_points(segment_id=None, segment_name=None, season_name=None, locat
 
 def get_segment_metadata(segment_id=None, segment_name=None, season_name=None):
     """
-    Get segment metadata from the OPS API
-    
-    Args:
-        segment_id (int, optional): The segment ID to query
-        segment_name (str, optional): The segment name (alternative to segment_id)
-        season_name (str, optional): The season name (required if using segment_name)
-    
-    Returns:
-        dict: API response as JSON
+    Get segment metadata from the OPS API.
+
+    Parameters
+    ----------
+    segment_id : int, optional
+        The segment ID to query. Either this or both segment_name and season_name must be provided.
+    segment_name : str, optional
+        The segment name (alternative to segment_id).
+    season_name : str, optional
+        The season name (required if using segment_name).
+
+    Returns
+    -------
+    dict or None
+        API response as JSON containing segment metadata, or None if request fails.
+        
+    Raises
+    ------
+    ValueError
+        If neither segment_id nor both segment_name and season_name are provided.
     """
 
     url = f"{ops_base_url}/get/segment/metadata"

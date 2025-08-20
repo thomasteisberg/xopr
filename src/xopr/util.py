@@ -8,14 +8,19 @@ T = TypeVar("T")
 
 def dict_equiv(first: dict, second: dict) -> bool:
     """Compare two dictionaries for equivalence (identity or equality).
-    
-    Args:
-        first: First dictionary to compare
-        second: Second dictionary to compare
-        
-    Returns:
+
+    Parameters
+    ----------
+    first : dict
+        First dictionary to compare.
+    second : dict
+        Second dictionary to compare.
+
+    Returns
+    -------
+    bool
         True if dictionaries are identical or have the same keys with
-        equivalent values (as determined by the equivalent function), False otherwise
+        equivalent values (as determined by the equivalent function), False otherwise.
     """
     if first is second:
         return True
@@ -30,14 +35,19 @@ def dict_equiv(first: dict, second: dict) -> bool:
 
 def list_equiv(first: Sequence[T], second: Sequence[T]) -> bool:
     """Compare two sequences for element-wise equivalence.
-    
-    Args:
-        first: First sequence to compare
-        second: Second sequence to compare
-        
-    Returns:
+
+    Parameters
+    ----------
+    first : Sequence[T]
+        First sequence to compare.
+    second : Sequence[T]
+        Second sequence to compare.
+
+    Returns
+    -------
+    bool
         True if sequences have equal length and all corresponding elements
-        are equivalent (as determined by the equivalent function), False otherwise
+        are equivalent (as determined by the equivalent function), False otherwise.
     """
     if len(first) != len(second):
         return False
@@ -45,19 +55,25 @@ def list_equiv(first: Sequence[T], second: Sequence[T]) -> bool:
 
 def equivalent(first, second) -> bool:
     """Compare two objects for equivalence (identity or equality).
-    
+
     Handles different data types:
-    - Arrays: Uses numpy.array_equal for comparison
-    - Lists/sequences: Recursively compares all elements
-    - Dictionaries: Compares keys and values recursively
-    - Other types: Uses equality operator or pandas null checking
     
-    Args:
-        first: First object to compare
-        second: Second object to compare
-        
-    Returns:
-        True if objects are identical, equal, or both are null/NaN, False otherwise
+    * Arrays: Uses numpy.array_equal for comparison
+    * Lists/sequences: Recursively compares all elements
+    * Dictionaries: Compares keys and values recursively
+    * Other types: Uses equality operator or pandas null checking
+
+    Parameters
+    ----------
+    first : Any
+        First object to compare.
+    second : Any
+        Second object to compare.
+
+    Returns
+    -------
+    bool
+        True if objects are identical, equal, or both are null/NaN, False otherwise.
     """
     
     from xarray.core import duck_array_ops
@@ -77,23 +93,29 @@ def equivalent(first, second) -> bool:
 
 def merge_dicts_no_conflicts(dicts: List[Dict[str, Any]], context=None) -> Dict[str, Any]:
     """Merge a list of dictionaries, dropping conflicting keys.
-    
+
     This function is designed to be passed to xarray's combine_attrs parameter.
     It merges dictionaries by keeping only keys where all values are equivalent.
     For nested dictionaries, merging is applied recursively.
-    
-    Args:
-        dicts: List of dictionaries to merge
-        context: Optional context parameter (unused but included for xarray compatibility)
-        
-    Returns:
+
+    Parameters
+    ----------
+    dicts : List[Dict[str, Any]]
+        List of dictionaries to merge.
+    context : Any, optional
+        Optional context parameter (unused but included for xarray compatibility).
+
+    Returns
+    -------
+    Dict[str, Any]
         Dictionary containing only non-conflicting key-value pairs from input dictionaries.
         Keys with conflicting values across dictionaries are dropped.
-        
-    Examples:
-        >>> dicts = [{'a': 1, 'b': 2}, {'a': 1, 'b': 3}]
-        >>> merge_dicts_no_conflicts(dicts)
-        {'a': 1}  # 'b' dropped due to conflict
+
+    Examples
+    --------
+    >>> dicts = [{'a': 1, 'b': 2}, {'a': 1, 'b': 3}]
+    >>> merge_dicts_no_conflicts(dicts)
+    {'a': 1}  # 'b' dropped due to conflict
     """
     merged = {}
     # Create set of all keys across dictionaries
