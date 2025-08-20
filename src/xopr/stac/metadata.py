@@ -44,7 +44,7 @@ def get_mat_file_type(file_path: Union[str, Path]) -> str:
         return 'application/x-matlab-data'
 
 
-def extract_item_metadata(mat_file_path: Union[str, Path], max_geometry_path_length: int = 1000) -> Dict[str, Any]:
+def extract_item_metadata(mat_file_path: Union[str, Path]) -> Dict[str, Any]:
     """
     Extract spatial and temporal metadata from MAT/HDF5 file.
     
@@ -80,70 +80,42 @@ def extract_item_metadata(mat_file_path: Union[str, Path], max_geometry_path_len
     
     if not mat_file_path.exists():
         raise FileNotFoundError(f"MAT file not found: {mat_file_path}")
-    
-    try:
-        f = h5py.File(mat_file_path, 'r')
-        use_h5py = True
-    except (OSError, h5py.h5f.FileOpenError):
-        f = scipy.io.loadmat(mat_file_path, mat_dtype=True)
-        use_h5py = False
+        
+    ds = opr.load_frame_url(file_url)
 
-    try:
-        # Extract time data
-        slow_time = np.squeeze(np.array(f['GPS_time']))
-        date = dt.datetime.fromtimestamp(slow_time.mean())
-        
-        # Extract coordinate data
-        if use_h5py:
-            # For HDF5 format, coordinates are in 'Latitude' and 'Longitude' fields
-            if 'Latitude' not in f or 'Longitude' not in f:
-                raise KeyError(f"Required fields Latitude/Longitude not found in {mat_file_path}")
-            
-            latitude = np.squeeze(np.array(f['Latitude']))
-            longitude = np.squeeze(np.array(f['Longitude']))
-        else:
-            # For older MATLAB format, try common field names
-            lat_candidates = ['Latitude', 'lat', 'LAT']
-            lon_candidates = ['Longitude', 'lon', 'LON']
-            
-            latitude = None
-            longitude = None
-            
-            for lat_field in lat_candidates:
-                if lat_field in f:
-                    latitude = np.squeeze(np.array(f[lat_field]))
-                    break
-            
-            for lon_field in lon_candidates:
-                if lon_field in f:
-                    longitude = np.squeeze(np.array(f[lon_field]))
-                    break
-            
-            if latitude is None or longitude is None:
-                raise KeyError(f"Required coordinate fields not found in {mat_file_path}")
-            
-        # Downsample geometry if too long
-        if len(latitude) > max_geometry_path_length:
-            step = (len(latitude) // max_geometry_path_length) + 1
-            latitude = latitude[::step]
-            longitude = longitude[::step]
-        
-        # Create geometry from coordinates
-        geom_series = gpd.GeoSeries(map(Point, zip(longitude, latitude)))
-        line = LineString(geom_series.tolist())
-        bounds = shapely.bounds(line)
-        boundingbox = box(bounds[0], bounds[1], bounds[2], bounds[3])
-        
-        return {
-            'geom': line,
-            'bbox': boundingbox,
-            'date': date
-        }
-        
-    finally:
-        if hasattr(f, 'close'):
-            f.close()
+    date = ds['slow_time'].mean()
 
+    # Create geometry from coordinates
+    geom_series = gpd.GeoSeries(map(Point, zip(ds['Longitude'].values,
+                                               ds['Latitude'].values)))
+    line = LineString(geom_series.tolist())
+    # this is lazy -- proper implementation would convert the coordinates to polar stereographic first
+    line = line.simplify(0.0001)
+    bounds = shapely.bounds(line)
+    boundingbox = box(bounds[0], bounds[1], bounds[2], bounds[3])
+
+    # Radar params
+    low_freq = ds.param_records['radar']['wfs']['f0']
+    high_freq = ds.param_records['radar']['wfs']['f1']
+    bandwidth = high_freq - low_freq
+    center_freq = (low_freq + high_freq) / 2
+
+    # Science params
+    doi = ds.attrs['doi']
+    ror = ds.attrs['ror']
+    cite = ds.attrs['funder_text']
+
+    dc.close()
+
+    return {
+        'geom': line,
+        'bbox': boundingbox,
+        'date': date,
+        'frequency': center_freq,
+        'bandwidth': bandwidth,
+        'doi': doi,
+        'citation': cite
+    }
 
 def discover_campaigns(data_root: Union[str, Path]) -> List[Dict[str, str]]:
     """
