@@ -5,7 +5,7 @@ Metadata extraction utilities for OPR STAC catalog creation.
 import datetime as dt
 import re
 from pathlib import Path
-from typing import Dict, List, Any
+from typing import Dict, List, Any, Union
 
 import h5py
 import numpy as np
@@ -14,14 +14,16 @@ import geopandas as gpd
 import shapely
 from shapely.geometry import LineString, Point, box
 
+from xopr.opr_access import OPRConnection
 
-def get_mat_file_type(file_path: Path) -> str:
+
+def get_mat_file_type(file_path: Union[str, Path]) -> str:
     """
     Figure out if a MAT file is in HDF5 format or older MATLAB format.
 
     Parameters
     ----------
-    file_path : pathlib.Path
+    file_path : Union[str, Path]
         Path to the MAT file to analyze.
     
     Returns
@@ -30,6 +32,9 @@ def get_mat_file_type(file_path: Path) -> str:
         MIME type string: 'application/x-hdf5' if HDF5 format, 
         'application/x-matlab-data' if older MATLAB format.
     """
+    # Convert string to Path if necessary
+    if isinstance(file_path, str):
+        file_path = Path(file_path)
 
     try:
         f = h5py.File(file_path, 'r')
@@ -39,13 +44,13 @@ def get_mat_file_type(file_path: Path) -> str:
         return 'application/x-matlab-data'
 
 
-def extract_item_metadata(mat_file_path: Path, max_geometry_path_length: int = 1000) -> Dict[str, Any]:
+def extract_item_metadata(mat_file_path: Union[str, Path], max_geometry_path_length: int = 1000) -> Dict[str, Any]:
     """
     Extract spatial and temporal metadata from MAT/HDF5 file.
     
     Parameters
     ----------
-    mat_file_path : pathlib.Path
+    mat_file_path : Union[str, Path]
         Path to MAT/HDF5 file containing GPS time and coordinate data.
     max_geometry_path_length : int, default 1000
         Maximum number of points to include in geometry. If file contains
@@ -69,6 +74,10 @@ def extract_item_metadata(mat_file_path: Path, max_geometry_path_length: int = 1
     KeyError
         If required coordinate or time fields are missing from input file.
     """
+    # Convert string to Path if necessary
+    if isinstance(mat_file_path, str):
+        mat_file_path = Path(mat_file_path)
+    
     if not mat_file_path.exists():
         raise FileNotFoundError(f"MAT file not found: {mat_file_path}")
     
@@ -136,13 +145,13 @@ def extract_item_metadata(mat_file_path: Path, max_geometry_path_length: int = 1
             f.close()
 
 
-def discover_campaigns(data_root: Path) -> List[Dict[str, str]]:
+def discover_campaigns(data_root: Union[str, Path]) -> List[Dict[str, str]]:
     """
     Discover all campaigns in the data directory.
     
     Parameters
     ----------
-    data_root : pathlib.Path
+    data_root : Union[str, Path]
         Root directory containing campaign subdirectories.
         
     Returns
@@ -169,6 +178,10 @@ def discover_campaigns(data_root: Path) -> List[Dict[str, str]]:
     campaign_pattern = re.compile(r'^(\d{4})_([^_]+)_([^_]+)$')
     campaigns = []
     
+    # Convert string to Path if necessary
+    if isinstance(data_root, str):
+        data_root = Path(data_root)
+    
     if not data_root.exists():
         raise FileNotFoundError(f"Data root directory not found: {data_root}")
     
@@ -188,13 +201,13 @@ def discover_campaigns(data_root: Path) -> List[Dict[str, str]]:
     return sorted(campaigns, key=lambda x: (x['year'], x['name']))
 
 
-def discover_data_products(campaign_path: Path) -> List[str]:
+def discover_data_products(campaign_path: Union[str, Path]) -> List[str]:
     """
     Discover available data products in a campaign directory.
     
     Parameters
     ----------
-    campaign_path : pathlib.Path
+    campaign_path : Union[str, Path]
         Path to campaign directory.
         
     Returns
@@ -203,6 +216,10 @@ def discover_data_products(campaign_path: Path) -> List[str]:
         List of data product names (e.g., ["CSARP_standard", "CSARP_layer"]).
         Names follow the pattern "CSARP_*".
     """
+    # Convert string to Path if necessary
+    if isinstance(campaign_path, str):
+        campaign_path = Path(campaign_path)
+    
     products = []
     csarp_pattern = re.compile(r'^CSARP_\w+$')
     
@@ -213,13 +230,13 @@ def discover_data_products(campaign_path: Path) -> List[str]:
     return sorted(products)
 
 
-def discover_flight_lines(campaign_path: Path, discovery_data_product: str = "CSARP_standard", extra_data_products : list = []) -> List[Dict[str, str]]:
+def discover_flight_lines(campaign_path: Union[str, Path], discovery_data_product: str = "CSARP_standard", extra_data_products : list = []) -> List[Dict[str, str]]:
     """
     Discover flight lines for a specific data product within a campaign.
     
     Parameters
     ----------
-    campaign_path : pathlib.Path
+    campaign_path : Union[str, Path]
         Path to campaign directory.
     discovery_data_product : str, default "CSARP_standard"
         Data product name to look for to find eligible flights.
@@ -246,6 +263,10 @@ def discover_flight_lines(campaign_path: Path, discovery_data_product: str = "CS
     FileNotFoundError
         If discovery_data_product directory doesn't exist in campaign_path.
     """
+    # Convert string to Path if necessary
+    if isinstance(campaign_path, str):
+        campaign_path = Path(campaign_path)
+    
     product_path = campaign_path / discovery_data_product
 
     if not product_path.exists():

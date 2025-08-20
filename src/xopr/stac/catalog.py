@@ -53,7 +53,7 @@ def create_collection(
     collection_id: str,
     description: str,
     extent: pystac.Extent,
-    license: str = "",
+    license: str = "various",
     stac_extensions: Optional[List[str]] = None
 ) -> pystac.Collection:
     """
@@ -215,6 +215,28 @@ def create_items_from_flight_data(
             'opr:segment': int(segment)
         }
         
+        # Add scientific extension properties if available
+        item_stac_extensions = ['https://stac-extensions.github.io/file/v2.1.0/schema.json']
+        
+        if metadata.get('doi'):
+            properties['sci:doi'] = metadata['doi']
+        
+        if metadata.get('citation'):
+            properties['sci:citation'] = metadata['citation']
+        
+        if metadata.get('doi') or metadata.get('citation'):
+            item_stac_extensions.append('https://stac-extensions.github.io/scientific/v1.0.0/schema.json')
+        
+        # Add SAR extension properties if available
+        if metadata.get('center_frequency'):
+            properties['sar:center_frequency'] = metadata['center_frequency']
+        
+        if metadata.get('bandwidth'):
+            properties['sar:bandwidth'] = metadata['bandwidth']
+        
+        if metadata.get('center_frequency') or metadata.get('bandwidth'):
+            item_stac_extensions.append('https://stac-extensions.github.io/sar/v1.0.0/schema.json')
+        
         assets = {}
 
         for data_product_type in flight_data['data_files'].keys():
@@ -247,7 +269,8 @@ def create_items_from_flight_data(
             bbox=bbox,
             datetime=datetime,
             properties=properties,
-            assets=assets
+            assets=assets,
+            stac_extensions=item_stac_extensions
         )
         
         items.append(item)
