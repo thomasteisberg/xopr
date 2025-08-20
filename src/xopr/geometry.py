@@ -4,14 +4,14 @@ from cartopy import crs
 from pyproj import Transformer
 import shapely.ops
 
-
 def get_antarctic_regions(
     name=None,
     regions=None, 
     subregions=None,
     type=None,
     merge_regions=True,
-    measures_boundaries_url = "https://storage.googleapis.com/opr_stac/reference_geometry/measures_boundaries_4326.geojson"
+    measures_boundaries_url = "https://storage.googleapis.com/opr_stac/reference_geometry/measures_boundaries_4326.geojson",
+    merge_in_projection="EPSG:3031"
 ):
     """
     Load and filter Antarctic regional boundaries from the MEASURES dataset.
@@ -73,25 +73,69 @@ def get_antarctic_regions(
         if isinstance(type, str):
             type = [type]
         filtered = filtered[filtered['TYPE'].isin(type)]
-
-    # Filter out invalid geometries
-    filtered = filtered[filtered.is_valid]
     
     if len(filtered) == 0:
         return [] if not merge_regions else None
     
     if merge_regions:
-        merged = filtered.iloc[0].geometry
-        for i in range(1, len(filtered)):
-            merged = merged.union(filtered.iloc[i].geometry)
+
+        if merge_in_projection:
+            filtered = filtered.to_crs(merge_in_projection)
+
+        # Check for invalid regions and attempt to fix them
+        invalid_geometries = filtered[~filtered.is_valid]
+        if len(invalid_geometries) > 0:
+            filtered = filtered.make_valid()
+            print(f"Warning: {len(invalid_geometries)} invalid geometries were fixed before merging.")
+            if merge_in_projection != "EPSG:3031":
+                print("Consider using merge_in_projection='EPSG:3031' to reproject before merging.")
+            print(f"Invalid geometry regions were: {', '.join(invalid_geometries['NAME'])}")
+
+        merged = filtered.union_all()
+
+        if merge_in_projection:
+            merged = project_geojson(merged, source_crs=merge_in_projection, target_crs="EPSG:4326")
+
         return merged
     else:
         return filtered
     
 def project_dataset(ds, target_crs):
-    projected_coords = target_crs.transform_points(
-        crs.PlateCarree(), ds['Longitude'].values, ds['Latitude'].values
-    ).T
+    """
+    Project dataset coordinates from WGS84 to a target coordinate reference system.
+    
+    Takes longitude and latitude coordinates from a dataset and projects them to
+    the specified target CRS, adding 'x' and 'y' coordinate arrays to the dataset.
+    
+    Parameters
+    ----------
+    ds : xarray.Dataset
+        Input dataset containing 'Longitude' and 'Latitude' coordinates
+    target_crs : cartopy.crs.CRS or str
+        Target coordinate reference system. Can be a cartopy CRS object or
+        a string representation (e.g., "EPSG:3031")
+        
+    Returns
+    -------
+    xarray.Dataset
+        Dataset with added 'x' and 'y' coordinate arrays in the target CRS
+        
+    Examples
+    --------
+    >>> import cartopy.crs as ccrs
+    >>> projected_ds = project_dataset(ds, ccrs.SouthPolarStereo())
+    >>> projected_ds = project_dataset(ds, "EPSG:3031")
+    """
+    if hasattr(target_crs, 'to_epsg') and target_crs.to_epsg():
+        target_crs_str = f"EPSG:{target_crs.to_epsg()}"
+    elif isinstance(target_crs, str):
+        target_crs_str = target_crs
+    else:
+        target_crs_str = target_crs.to_proj4_string()
+    
+    transformer = Transformer.from_crs("EPSG:4326", target_crs_str, always_xy=True)
+    projected_coords = transformer.transform(ds['Longitude'].values, ds['Latitude'].values)
+    
     ds = ds.assign_coords({
         'x': (('slow_time'), projected_coords[0]),
         'y': (('slow_time'), projected_coords[1])
@@ -99,6 +143,33 @@ def project_dataset(ds, target_crs):
     return ds
 
 def project_geojson(geometry, source_crs="EPSG:4326", target_crs="EPSG:3031"):
+    """
+    Project a geometry from one coordinate reference system to another.
+    
+    Uses pyproj.Transformer to reproject geometries between different
+    coordinate reference systems. Commonly used for projecting geometries
+    from WGS84 (lat/lon) to polar stereographic projections.
+    
+    Parameters
+    ----------
+    geometry : shapely.geometry.base.BaseGeometry
+        Input geometry to be projected
+    source_crs : str, default "EPSG:4326"
+        Source coordinate reference system (default is WGS84)
+    target_crs : str, default "EPSG:3031"
+        Target coordinate reference system (default is Antarctic Polar Stereographic)
+        
+    Returns
+    -------
+    shapely.geometry.base.BaseGeometry
+        Projected geometry in the target coordinate reference system
+        
+    Examples
+    --------
+    >>> from shapely.geometry import Point
+    >>> point = Point(-70, -75)  # lon, lat in WGS84
+    >>> projected = project_geojson(point, "EPSG:4326", "EPSG:3031")
+    """
     transformer = Transformer.from_crs(source_crs, target_crs, always_xy=True)
     projected_geometry = shapely.ops.transform(transformer.transform, geometry)
     return projected_geometry

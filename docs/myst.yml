@@ -16,10 +16,6 @@ project:
         - file: notebooks/demo_notebook.ipynb
         - file: notebooks/search_and_scaling.ipynb
         - file: notebooks/reading_params.ipynb
-  execute:
-    execute_notebooks: force
-    allow_errors: false
-    show_tb: true
     
 site:
   template: book-theme
