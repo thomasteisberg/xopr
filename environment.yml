@@ -19,6 +19,7 @@ dependencies:
   - fsspec
   - pip:
     - stac_asset
+    - stac_geoparquet
   
   # Testing and code quality tools
   - pytest
