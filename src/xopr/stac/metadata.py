@@ -107,7 +107,7 @@ def extract_item_metadata(mat_file_path: Union[str, Path]) -> Dict[str, Any]:
     ror = ds.attrs['ror']
     cite = ds.attrs['funder_text']
 
-    dc.close()
+    ds.close()
 
     return {
         'geom': line,
