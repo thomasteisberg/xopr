@@ -176,14 +176,6 @@ def build_limited_catalog(
                     flight_data, base_url, campaign_name, data_product
                 )
 
-                if not items:
-                    continue
-
-                # Limit items per flight if specified
-                if max_items is not None:
-                    # Just take first item per flight when limiting
-                    items = items[:1]
-
                 # Create flight collection
                 flight_id = flight_data['flight_id']
                 flight_extent = build_collection_extent(items)
@@ -191,11 +183,11 @@ def build_limited_catalog(
                 # Collect scientific metadata from items for flight collection
                 dois = [
                     item.properties.get('sci:doi') for item in items
-                    if item.properties.get('sci:doi')
+                    if item.properties.get('sci:doi') is not None
                 ]
                 citations = [
                     item.properties.get('sci:citation') for item in items
-                    if item.properties.get('sci:citation')
+                    if item.properties.get('sci:citation') is not None
                 ]
 
                 # Check for unique values and prepare extensions
@@ -215,12 +207,12 @@ def build_limited_catalog(
                 center_frequencies = [
                     item.properties.get('sar:center_frequency')
                     for item in items
-                    if item.properties.get('sar:center_frequency')
+                    if item.properties.get('sar:center_frequency') is not None
                 ]
                 bandwidths = [
                     item.properties.get('sar:bandwidth')
                     for item in items
-                    if item.properties.get('sar:bandwidth')
+                    if item.properties.get('sar:bandwidth') is not None
                 ]
 
                 if (center_frequencies and
@@ -278,12 +270,12 @@ def build_limited_catalog(
             # Collect scientific metadata from all campaign items
             campaign_dois = [
                 item.properties.get('sci:doi') for item in all_campaign_items
-                if item.properties.get('sci:doi')
+                if item.properties.get('sci:doi') is not None
             ]
             campaign_citations = [
                 item.properties.get('sci:citation')
                 for item in all_campaign_items
-                if item.properties.get('sci:citation')
+                if item.properties.get('sci:citation') is not None
             ]
 
             # Check for unique values and prepare extensions
@@ -303,12 +295,12 @@ def build_limited_catalog(
             campaign_center_frequencies = [
                 item.properties.get('sar:center_frequency')
                 for item in all_campaign_items
-                if item.properties.get('sar:center_frequency')
+                if item.properties.get('sar:center_frequency') is not None
             ]
             campaign_bandwidths = [
                 item.properties.get('sar:bandwidth')
                 for item in all_campaign_items
-                if item.properties.get('sar:bandwidth')
+                if item.properties.get('sar:bandwidth') is not None
             ]
 
             if (campaign_center_frequencies and

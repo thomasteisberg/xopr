@@ -7,6 +7,8 @@ from pathlib import Path
 from typing import Dict, List, Any, Union
 
 import geopandas as gpd
+import numpy as np
+import pandas as pd
 import shapely
 from shapely.geometry import LineString, Point, box
 
@@ -14,17 +16,19 @@ from xopr.opr_access import OPRConnection
 
 
 
-def extract_item_metadata(mat_file_path: Union[str, Path]) -> Dict[str, Any]:
+def extract_item_metadata(mat_file_path: Union[str, Path] = None, 
+                         dataset=None) -> Dict[str, Any]:
     """
-    Extract spatial and temporal metadata from MAT/HDF5 file.
+    Extract spatial and temporal metadata from MAT/HDF5 file or dataset.
 
     Parameters
     ----------
-    mat_file_path : Union[str, Path]
-        Path to MAT/HDF5 file containing GPS time and coordinate data.
-    max_geometry_path_length : int, optional
-        Maximum number of points to include in geometry. If file contains
-        more points, they will be downsampled.
+    mat_file_path : Union[str, Path], optional
+        Path or URL to MAT/HDF5 file containing GPS time and coordinate data.
+        If provided, the file will be loaded. Mutually exclusive with dataset.
+    dataset : xarray.Dataset, optional
+        Pre-loaded dataset containing GPS time and coordinate data.
+        Mutually exclusive with mat_file_path.
 
     Returns
     -------
@@ -36,26 +40,51 @@ def extract_item_metadata(mat_file_path: Union[str, Path]) -> Dict[str, Any]:
             Bounding box of flight path.
         - 'date' : datetime.datetime
             Mean acquisition datetime.
+        - 'frequency' : float
+            Center frequency in Hz.
+        - 'bandwidth' : float
+            Bandwidth in Hz.
+        - 'doi' : str or None
+            DOI if available.
+        - 'citation' : str or None
+            Citation text if available.
+        - 'mimetype' : str
+            MIME type of the data.
 
     Raises
     ------
+    ValueError
+        If both or neither mat_file_path and dataset are provided.
     FileNotFoundError
-        If input file doesn't exist.
+        If mat_file_path is provided but file doesn't exist (for local paths).
     KeyError
-        If required coordinate or time fields are missing from input file.
+        If required coordinate or time fields are missing from dataset.
     """
-    # Convert string to Path if necessary
-    if isinstance(mat_file_path, str):
-        mat_file_path = Path(mat_file_path)
+    # Validate input parameters
+    if (mat_file_path is None) == (dataset is None):
+        raise ValueError("Exactly one of mat_file_path or dataset must be provided")
+    
+    should_close_dataset = False
+    
+    if mat_file_path is not None:
+        # Convert string to Path if necessary for local file existence check
+        if isinstance(mat_file_path, str):
+            file_path = Path(mat_file_path)
+        else:
+            file_path = mat_file_path
+            
+        # Only check existence for local files (not URLs)
+        if not str(mat_file_path).startswith(('http://', 'https://')):
+            if not file_path.exists():
+                raise FileNotFoundError(f"MAT file not found: {file_path}")
 
-    if not mat_file_path.exists():
-        raise FileNotFoundError(f"MAT file not found: {mat_file_path}")
+        opr = OPRConnection(cache_dir="radar_cache")
+        ds = opr.load_frame_url(str(mat_file_path))
+        should_close_dataset = True
+    else:
+        ds = dataset
 
-    opr = OPRConnection(cache_dir="radar_cache")
-
-    ds = opr.load_frame_url(mat_file_path)
-
-    date = ds['slow_time'].mean()
+    date = pd.to_datetime(ds['slow_time'].mean().values).to_pydatetime()
 
     # Create geometry from coordinates
     geom_series = gpd.GeoSeries(map(Point, zip(ds['Longitude'].values,
@@ -67,17 +96,33 @@ def extract_item_metadata(mat_file_path: Union[str, Path]) -> Dict[str, Any]:
     boundingbox = box(bounds[0], bounds[1], bounds[2], bounds[3])
 
     # Radar params
-    low_freq = ds.param_records['radar']['wfs']['f0']
-    high_freq = ds.param_records['radar']['wfs']['f1']
-    bandwidth = high_freq - low_freq
-    center_freq = (low_freq + high_freq) / 2
+    low_freq_array = ds.param_records['radar']['wfs']['f0']
+    high_freq_array = ds.param_records['radar']['wfs']['f1']
+    
+    # Check for unique values and extract scalar
+    unique_low_freq = np.unique(low_freq_array)
+    if len(unique_low_freq) != 1:
+        raise ValueError(f"Multiple low frequency values found: {unique_low_freq}")
+    low_freq = float(unique_low_freq[0])
+    
+    unique_high_freq = np.unique(high_freq_array)
+    if len(unique_high_freq) != 1:
+        raise ValueError(f"Multiple high frequency values found: {unique_high_freq}")
+    high_freq = float(unique_high_freq[0])
+    
+    bandwidth = float(np.abs(high_freq - low_freq))
+    center_freq = float((low_freq + high_freq) / 2)
 
     # Science params
-    doi = ds.attrs['doi']
-    ror = ds.attrs['ror']
-    cite = ds.attrs['funder_text']
+    doi = ds.attrs.get('doi', None)
+    ror = ds.attrs.get('ror', None)
+    cite = ds.attrs.get('funder_text', None)
 
-    ds.close()
+    mime = ds.attrs['mimetype']
+
+    # Only close the dataset if we opened it
+    if should_close_dataset:
+        ds.close()
 
     return {
         'geom': line,
@@ -86,7 +131,8 @@ def extract_item_metadata(mat_file_path: Union[str, Path]) -> Dict[str, Any]:
         'frequency': center_freq,
         'bandwidth': bandwidth,
         'doi': doi,
-        'citation': cite
+        'citation': cite,
+        'mimetype': mime
     }
 
 

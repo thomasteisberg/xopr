@@ -10,7 +10,7 @@ import pystac
 import shapely
 from shapely.geometry import mapping
 
-from .metadata import extract_item_metadata, discover_campaigns, discover_flight_lines, get_mat_file_type
+from .metadata import extract_item_metadata, discover_campaigns, discover_flight_lines
 
 
 def create_catalog(
@@ -218,23 +218,23 @@ def create_items_from_flight_data(
         # Add scientific extension properties if available
         item_stac_extensions = ['https://stac-extensions.github.io/file/v2.1.0/schema.json']
         
-        if metadata.get('doi'):
+        if metadata.get('doi') is not None:
             properties['sci:doi'] = metadata['doi']
         
-        if metadata.get('citation'):
+        if metadata.get('citation') is not None:
             properties['sci:citation'] = metadata['citation']
         
-        if metadata.get('doi') or metadata.get('citation'):
+        if metadata.get('doi') is not None or metadata.get('citation') is not None:
             item_stac_extensions.append('https://stac-extensions.github.io/scientific/v1.0.0/schema.json')
         
         # Add SAR extension properties if available
-        if metadata.get('center_frequency'):
-            properties['sar:center_frequency'] = metadata['center_frequency']
+        if metadata.get('frequency') is not None:
+            properties['sar:center_frequency'] = metadata['frequency']
         
-        if metadata.get('bandwidth'):
+        if metadata.get('bandwidth') is not None:
             properties['sar:bandwidth'] = metadata['bandwidth']
         
-        if metadata.get('center_frequency') or metadata.get('bandwidth'):
+        if metadata.get('frequency') is not None or metadata.get('bandwidth') is not None:
             item_stac_extensions.append('https://stac-extensions.github.io/sar/v1.0.0/schema.json')
         
         assets = {}
@@ -242,7 +242,7 @@ def create_items_from_flight_data(
         for data_product_type in flight_data['data_files'].keys():
             if data_path.name in flight_data['data_files'][data_product_type]:
                 product_path = flight_data['data_files'][data_product_type][data_path.name]
-                file_type = get_mat_file_type(product_path)
+                file_type = metadata.get('mimetype') # get_mat_file_type(product_path)
                 print(f"[{file_type}] {product_path}")
                 assets[data_product_type] = pystac.Asset(
                     href=base_url + f"{campaign_name}/{data_product_type}/{flight_id}/{data_path.name}",
