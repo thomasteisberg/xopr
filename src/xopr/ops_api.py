@@ -11,78 +11,18 @@ import urllib.parse
 
 ops_base_url = "https://ops.cresis.ku.edu/ops"
 
-def get_segment_id_by_name(segment_name, season_name):
-    """
-    Get segment ID by segment name and season.
-
-    Parameters
-    ----------
-    segment_name : str
-        The segment name (e.g., "20230109_01").
-    season_name : str
-        The season name (e.g., "2022_Antarctica_BaslerMKB").
-
-    Returns
-    -------
-    dict or None
-        API response containing segment metadata if found, None otherwise.
-    """
-
-    url = f"{ops_base_url}/get/segment/metadata"
-
-    # Prepare the data payload using segment name and season
-    data_payload = {
-        "properties": {
-            "segment": segment_name,
-            "season": season_name
-        }
-    }
-    
-    # URL encode the JSON data
-    encoded_data = urllib.parse.quote(json.dumps(data_payload))
-    
-    # Form data
-    form_data = f"app=rds&data={encoded_data}"
-    
-    # Minimal headers
-    headers = {
-        'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8'
-    }
-    
-    try:
-        response = requests.post(url, data=form_data, headers=headers)
-        response.raise_for_status()
-        
-        result = response.json()
-        if result.get('status') == 1 and 'data' in result:
-            print(f"Found segment: {segment_name} in season: {season_name}")
-            return result
-        else:
-            print(f"Segment {segment_name} not found in season {season_name}")
-            return None
-            
-    except requests.exceptions.RequestException as e:
-        print(f"Error making request: {e}")
-        return None
-    except json.JSONDecodeError as e:
-        print(f"Error parsing JSON response: {e}")
-        return None
-
-
-def get_layer_points(segment_id=None, segment_name=None, season_name=None, location="arctic", layer_names=None):
+def get_layer_points(segment_name : str, season_name : str, location=None, layer_names=None):
     """
     Get layer points for a segment from the OPS API.
 
     Parameters
     ----------
-    segment_id : int, optional
-        The segment ID to query. Either this or both segment_name and season_name must be provided.
-    segment_name : str, optional
-        The segment name (alternative to segment_id).
-    season_name : str, optional
-        The season name (required if using segment_name).
-    location : str, default "arctic"
-        Location name for the query.
+    segment_name : str
+        The segment name
+    season_name : str
+        The season name
+    location : str, optional
+        The location, either 'arctic' or 'antarctic'. If None, inferred from season_name.
     layer_names : list of str, optional
         List of layer names to retrieve. If None, retrieves all layers.
 
@@ -99,24 +39,21 @@ def get_layer_points(segment_id=None, segment_name=None, season_name=None, locat
 
     url = f"{ops_base_url}/get/layer/points"
 
-    # Prepare the data payload - support both segment_id and segment_name approaches
-    if segment_id is not None:
-        data_payload = {
-            "properties": {
-                "location": location,
-                "segment_id": segment_id,
-            }
+    if location is None:
+        if "antarctica" in season_name.lower():
+            location = "antarctic"
+        elif "greenland" in season_name.lower():
+            location = "arctic"
+        else:
+            raise ValueError("Location could not be inferred from the season name. Please specify 'arctic' or 'antarctic' explicitly.")
+
+    data_payload = {
+        "properties": {
+            "location": location,
+            "season": season_name,
+            "segment": segment_name,
         }
-    elif segment_name is not None and season_name is not None:
-        data_payload = {
-            "properties": {
-                "location": location,
-                "season": season_name,
-                "segment": segment_name,
-            }
-        }
-    else:
-        raise ValueError("Must provide either segment_id or both segment_name and season_name")
+    }
     
     # Add layer names if specified
     if layer_names:
@@ -157,14 +94,12 @@ def get_layer_points(segment_id=None, segment_name=None, season_name=None, locat
         return None
 
 
-def get_segment_metadata(segment_id=None, segment_name=None, season_name=None):
+def get_segment_metadata(segment_name : str, season_name : str):
     """
     Get segment metadata from the OPS API.
 
     Parameters
     ----------
-    segment_id : int, optional
-        The segment ID to query. Either this or both segment_name and season_name must be provided.
     segment_name : str, optional
         The segment name (alternative to segment_id).
     season_name : str, optional
@@ -183,22 +118,12 @@ def get_segment_metadata(segment_id=None, segment_name=None, season_name=None):
 
     url = f"{ops_base_url}/get/segment/metadata"
 
-    # Prepare the data payload - support both segment_id and segment_name approaches
-    if segment_id is not None:
-        data_payload = {
-            "properties": {
-                "segment_id": segment_id
-            }
+    data_payload = {
+        "properties": {
+            "segment": segment_name,
+            "season": season_name
         }
-    elif segment_name is not None and season_name is not None:
-        data_payload = {
-            "properties": {
-                "segment": segment_name,
-                "season": season_name
-            }
-        }
-    else:
-        raise ValueError("Must provide either segment_id or both segment_name and season_name")
+    }
     
     # URL encode the JSON data
     encoded_data = urllib.parse.quote(json.dumps(data_payload))
@@ -217,6 +142,11 @@ def get_segment_metadata(segment_id=None, segment_name=None, season_name=None):
         
         # Check if request was successful
         response.raise_for_status()
+
+        # Check if the response indicates a valid segment
+        if response.json()['status'] == 0:
+            print(f"Segment {segment_name} not found in season {season_name}. Error: {response.json().get('data', 'Unknown error')}")
+            return None
         
         # Return JSON response
         return response.json()
