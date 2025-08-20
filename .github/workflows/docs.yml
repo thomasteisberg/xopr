@@ -69,6 +69,11 @@ jobs:
       run: |
         cd docs
         uv run --extra docs jupyter-book build --html --execute
+        # Check for errors running the notebooks and fail if any are found
+        if grep -r "Error\\|Exception\\|Traceback" _build/; then
+          echo "Found execution errors in build"
+          exit 1
+        fi
 
     - name: Download coverage artifacts
       uses: actions/download-artifact@v4
