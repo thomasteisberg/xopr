@@ -384,25 +384,26 @@ def merge_flight_geometries(flight_geometries: List[Dict[str, Any]]) -> Optional
     Merge simplified flight geometries into a single MultiLineString.
     
     This function is designed for campaign-level collections where individual
-    flight LineStrings need to be combined into a MultiLineString since they
+    flight geometries need to be combined into a MultiLineString since they
     are not spatially continuous.
     
     Parameters
     ----------
     flight_geometries : list of dict
-        List of GeoJSON geometry objects (expected to be LineStrings) from
+        List of GeoJSON geometry objects (can be LineStrings or MultiLineStrings) from
         flight collections that have already been simplified.
         
     Returns
     -------
     dict or None
         GeoJSON MultiLineString geometry object containing all flight geometries,
-        or None if no valid geometries found.
+        or None if no valid geometries found. If there's only one LineString,
+        returns it as-is without wrapping in MultiLineString.
     """
     if not flight_geometries:
         return None
     
-    linestrings = []
+    all_linestrings = []
     for geom_dict in flight_geometries:
         if geom_dict is None:
             continue
@@ -410,19 +411,24 @@ def merge_flight_geometries(flight_geometries: List[Dict[str, Any]]) -> Optional
         try:
             geom = shapely.geometry.shape(geom_dict)
             if geom.is_valid:
-                linestrings.append(geom)
+                # Handle both LineString and MultiLineString geometries
+                if geom.geom_type == 'LineString':
+                    all_linestrings.append(geom)
+                elif geom.geom_type == 'MultiLineString':
+                    # Extract individual LineStrings from MultiLineString
+                    all_linestrings.extend(list(geom.geoms))
         except Exception:
             continue
     
-    if not linestrings:
+    if not all_linestrings:
         return None
     
     # Create MultiLineString from all linestrings
-    if len(linestrings) == 1:
+    if len(all_linestrings) == 1:
         # If only one linestring, return it as-is (not wrapped in MultiLineString)
-        multi_linestring = linestrings[0]
+        multi_linestring = all_linestrings[0]
     else:
-        multi_linestring = shapely.geometry.MultiLineString(linestrings)
+        multi_linestring = shapely.geometry.MultiLineString(all_linestrings)
     
     # Convert back to GeoJSON
     return mapping(multi_linestring)

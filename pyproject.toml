@@ -23,7 +23,8 @@ dependencies = [
     "h5py",
     "pystac_client",
     "stac_asset",
-    "fsspec"
+    "fsspec",
+    "dask[distributed]"
 ]
 
 [project.optional-dependencies]
