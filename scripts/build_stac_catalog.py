@@ -10,10 +10,14 @@ import argparse
 import json
 from pathlib import Path
 import sys
+from typing import List, Optional
 
 import numpy as np
 import pystac
 import stac_geoparquet
+import dask
+from dask.distributed import Client, as_completed
+from dask import delayed
 from xopr.stac import (
     create_catalog, create_collection,
     build_collection_extent, create_items_from_flight_data,
@@ -162,7 +166,14 @@ def export_collections_to_separate_parquet(
         return
 
     for collection in collections:
+        # Get both direct items and items from child collections
         collection_items = list(collection.get_items())
+        
+        # If no direct items, check for items in child collections
+        if not collection_items:
+            for child_collection in collection.get_collections():
+                collection_items.extend(list(child_collection.get_items()))
+        
         if not collection_items:
             print(f"   Skipping {collection.id}: no items")
             continue
@@ -289,11 +300,18 @@ def export_to_json_catalog(catalog: pystac.Catalog, output_file: Path) -> None:
     for collection in catalog.get_collections():
         collection_dict = collection.to_dict()
 
-        # Add all items to the collection
+        # Add all items to the collection (both direct and from child collections)
         items = []
         for item in collection.get_items():
             items.append(item.to_dict())
             item_count += 1
+        
+        # If no direct items, get items from child collections
+        if not items:
+            for child_collection in collection.get_collections():
+                for item in child_collection.get_items():
+                    items.append(item.to_dict())
+                    item_count += 1
 
         if items:
             collection_dict['items'] = items
@@ -313,6 +331,412 @@ def export_to_json_catalog(catalog: pystac.Catalog, output_file: Path) -> None:
     )
     print(f"   ✅ JSON catalog saved: {output_file}")
     print(f"   File size: {output_file.stat().st_size / 1024:.1f} KB")
+
+
+def setup_dask_client(args) -> Optional[Client]:
+    """
+    Set up Dask client for parallel processing.
+    
+    Parameters
+    ----------
+    args : argparse.Namespace
+        Command line arguments containing Dask configuration
+        
+    Returns
+    -------
+    Client or None
+        Dask client if parallel processing is enabled, None otherwise
+    """
+    if not (args.parallel or args.parallel_items or 
+            args.parallel_flights or args.parallel_campaigns):
+        return None
+    
+    if args.scheduler_address:
+        print(f"🔗 Connecting to existing Dask scheduler: {args.scheduler_address}")
+        client = Client(args.scheduler_address)
+    else:
+        n_workers = args.n_workers
+        if n_workers is None:
+            # Auto-detect based on CPU cores, leaving some for system
+            import os
+            n_workers = max(1, os.cpu_count() - 1)
+        
+        print(f"🚀 Starting local Dask cluster with {n_workers} workers")
+        client = Client(processes=True, n_workers=n_workers, threads_per_worker=2)
+    
+    print(f"   Dashboard: {client.dashboard_link}")
+    return client
+
+
+@delayed
+def create_items_from_flight_data_delayed(
+    flight_data, base_url, campaign_name, primary_data_product, verbose=False
+):
+    """
+    Delayed version of create_items_from_flight_data for parallel processing.
+    """
+    return create_items_from_flight_data(
+        flight_data, base_url, campaign_name, primary_data_product, verbose
+    )
+
+
+@delayed
+def process_single_flight_delayed(
+    flight_data, base_url, campaign_name, primary_data_product, 
+    campaign_info, verbose=False
+):
+    """
+    Process a single flight and return flight collection data.
+    
+    This is a delayed function that processes one flight's data into a 
+    flight collection with all its items.
+    """
+    from xopr.stac.catalog import (
+        build_collection_extent_and_geometry, create_collection,
+        SCI_EXT, SAR_EXT
+    )
+    
+    try:
+        # Create items for this flight
+        items = create_items_from_flight_data(
+            flight_data, base_url, campaign_name, primary_data_product, verbose
+        )
+        
+        if not items:
+            return None
+        
+        # Create flight collection
+        flight_id = flight_data['flight_id']
+        flight_extent, flight_geometry = build_collection_extent_and_geometry(items)
+        
+        # Collect scientific metadata from items for flight collection
+        dois = [
+            item.properties.get('sci:doi') for item in items
+            if item.properties.get('sci:doi') is not None
+        ]
+        citations = [
+            item.properties.get('sci:citation') for item in items
+            if item.properties.get('sci:citation') is not None
+        ]
+        
+        # Check for unique values and prepare extensions
+        flight_extensions = []
+        flight_extra_fields = {}
+        
+        if dois and len(np.unique(dois)) == 1:
+            flight_extensions.append(SCI_EXT)
+            flight_extra_fields['sci:doi'] = dois[0]
+        
+        if citations and len(np.unique(citations)) == 1:
+            if SCI_EXT not in flight_extensions:
+                flight_extensions.append(SCI_EXT)
+            flight_extra_fields['sci:citation'] = citations[0]
+        
+        # Collect SAR metadata from items for flight collection
+        center_frequencies = [
+            item.properties.get('sar:center_frequency')
+            for item in items
+            if item.properties.get('sar:center_frequency') is not None
+        ]
+        bandwidths = [
+            item.properties.get('sar:bandwidth')
+            for item in items
+            if item.properties.get('sar:bandwidth') is not None
+        ]
+        
+        if center_frequencies and len(np.unique(center_frequencies)) == 1:
+            flight_extensions.append(SAR_EXT)
+            flight_extra_fields['sar:center_frequency'] = center_frequencies[0]
+        
+        if bandwidths and len(np.unique(bandwidths)) == 1:
+            if SAR_EXT not in flight_extensions:
+                flight_extensions.append(SAR_EXT)
+            flight_extra_fields['sar:bandwidth'] = bandwidths[0]
+        
+        flight_collection = create_collection(
+            collection_id=flight_id,
+            description=(
+                f"Flight {flight_id} data from {campaign_info['year']} "
+                f"{campaign_info['aircraft']} over {campaign_info['location']}"
+            ),
+            extent=flight_extent,
+            stac_extensions=flight_extensions if flight_extensions else None,
+            geometry=flight_geometry
+        )
+        
+        # Add scientific extra fields to flight collection
+        for key, value in flight_extra_fields.items():
+            flight_collection.extra_fields[key] = value
+        
+        # Add items to flight collection
+        flight_collection.add_items(items)
+        
+        return {
+            'collection': flight_collection,
+            'items': items,
+            'geometry': flight_geometry,
+            'flight_id': flight_id
+        }
+        
+    except Exception as e:
+        flight_id = flight_data.get('flight_id', 'unknown')
+        print(f"Warning: Failed to process flight {flight_id}: {e}")
+        return None
+
+
+@delayed
+def process_campaign_delayed(
+    campaign, data_root, data_product, extra_data_products, base_url, 
+    max_items, verbose, parallel_flights=False
+):
+    """
+    Process a single campaign and return campaign collection data.
+    
+    This is a delayed function that processes one campaign's data into a 
+    campaign collection with all its flight collections.
+    """
+    from xopr.stac.catalog import (
+        build_collection_extent, create_collection, merge_flight_geometries,
+        SCI_EXT, SAR_EXT
+    )
+    
+    campaign_path = Path(campaign['path'])
+    campaign_name = campaign['name']
+    
+    print(f"Processing campaign: {campaign_name}")
+    
+    try:
+        flight_lines = discover_flight_lines(
+            campaign_path, data_product,
+            extra_data_products=extra_data_products
+        )
+    except FileNotFoundError as e:
+        print(f"Warning: Skipping {campaign_name}: {e}")
+        return None
+    
+    if not flight_lines:
+        print(f"Warning: No flight lines found for {campaign_name}")
+        return None
+    
+    # Limit the number of flight lines processed if specified
+    if max_items is not None:
+        flight_lines = flight_lines[:max_items]
+    
+    if parallel_flights:
+        # Process flights in parallel
+        print(f"  Processing {len(flight_lines)} flights in parallel...")
+        
+        flight_futures = []
+        for flight_data in flight_lines:
+            future = process_single_flight_delayed(
+                flight_data, base_url, campaign_name, data_product, 
+                campaign, verbose
+            )
+            flight_futures.append(future)
+        
+        # Compute all flight futures
+        flight_results = dask.compute(*flight_futures)
+        
+    else:
+        # Process flights sequentially
+        flight_results = []
+        for flight_data in flight_lines:
+            result = process_single_flight_delayed(
+                flight_data, base_url, campaign_name, data_product, 
+                campaign, verbose
+            ).compute()
+            flight_results.append(result)
+    
+    # Filter out failed flights
+    flight_results = [r for r in flight_results if r is not None]
+    
+    if not flight_results:
+        print(f"Warning: No valid flights processed for {campaign_name}")
+        return None
+    
+    # Extract collections, items, and geometries
+    flight_collections = [r['collection'] for r in flight_results]
+    all_campaign_items = []
+    flight_geometries = []
+    
+    for result in flight_results:
+        all_campaign_items.extend(result['items'])
+        if result['geometry'] is not None:
+            flight_geometries.append(result['geometry'])
+        print(f"  Added flight collection {result['flight_id']} with {len(result['items'])} items")
+    
+    # Create campaign collection with extent covering all flights
+    campaign_extent = build_collection_extent(all_campaign_items)
+    
+    # Merge flight geometries into campaign-level MultiLineString
+    campaign_geometry = merge_flight_geometries(flight_geometries)
+    
+    # Collect scientific metadata from all campaign items
+    campaign_dois = [
+        item.properties.get('sci:doi') for item in all_campaign_items
+        if item.properties.get('sci:doi') is not None
+    ]
+    campaign_citations = [
+        item.properties.get('sci:citation')
+        for item in all_campaign_items
+        if item.properties.get('sci:citation') is not None
+    ]
+    
+    # Check for unique values and prepare extensions
+    campaign_extensions = []
+    campaign_extra_fields = {}
+    
+    if campaign_dois and len(np.unique(campaign_dois)) == 1:
+        campaign_extensions.append(SCI_EXT)
+        campaign_extra_fields['sci:doi'] = campaign_dois[0]
+    
+    if campaign_citations and len(np.unique(campaign_citations)) == 1:
+        if SCI_EXT not in campaign_extensions:
+            campaign_extensions.append(SCI_EXT)
+        campaign_extra_fields['sci:citation'] = campaign_citations[0]
+    
+    # Collect SAR metadata from all campaign items
+    campaign_center_frequencies = [
+        item.properties.get('sar:center_frequency')
+        for item in all_campaign_items
+        if item.properties.get('sar:center_frequency') is not None
+    ]
+    campaign_bandwidths = [
+        item.properties.get('sar:bandwidth')
+        for item in all_campaign_items
+        if item.properties.get('sar:bandwidth') is not None
+    ]
+    
+    if campaign_center_frequencies and len(np.unique(campaign_center_frequencies)) == 1:
+        campaign_extensions.append(SAR_EXT)
+        campaign_extra_fields['sar:center_frequency'] = campaign_center_frequencies[0]
+    
+    if campaign_bandwidths and len(np.unique(campaign_bandwidths)) == 1:
+        if SAR_EXT not in campaign_extensions:
+            campaign_extensions.append(SAR_EXT)
+        campaign_extra_fields['sar:bandwidth'] = campaign_bandwidths[0]
+    
+    campaign_collection = create_collection(
+        collection_id=campaign_name,
+        description=(
+            f"{campaign['year']} {campaign['aircraft']} flights "
+            f"over {campaign['location']}"
+        ),
+        extent=campaign_extent,
+        stac_extensions=campaign_extensions if campaign_extensions else None,
+        geometry=campaign_geometry
+    )
+    
+    # Add scientific extra fields to campaign collection
+    for key, value in campaign_extra_fields.items():
+        campaign_collection.extra_fields[key] = value
+    
+    # Add flight collections as children of campaign collection
+    for flight_collection in flight_collections:
+        campaign_collection.add_child(flight_collection)
+    
+    print(
+        f"Added campaign collection {campaign_name} with "
+        f"{len(flight_collections)} flight collections and "
+        f"{len(all_campaign_items)} total items"
+    )
+    
+    return campaign_collection
+
+
+def build_parallel_catalog(
+    data_root: Path,
+    output_path: Path,
+    catalog_id: str = "OPR",
+    data_product: str = "CSARP_standard",
+    extra_data_products: List[str] = ['CSARP_layer', 'CSARP_qlook'],
+    base_url: str = "https://data.cresis.ku.edu/data/rds/",
+    max_items: int = 10,
+    campaign_filter: List[str] = None,
+    verbose: bool = False,
+    parallel_flights: bool = False,
+    parallel_campaigns: bool = False
+) -> pystac.Catalog:
+    """
+    Build STAC catalog with parallel processing using Dask.
+    
+    Parameters
+    ----------
+    data_root : Path
+        Root directory containing campaign data
+    output_path : Path
+        Directory where catalog will be saved
+    catalog_id : str, optional
+        Catalog ID, by default "OPR"
+    data_product : str, optional
+        Primary data product to process, by default "CSARP_standard"
+    extra_data_products : List[str], optional
+        Additional data products to include, by default ['CSARP_layer', 'CSARP_qlook']
+    base_url : str, optional
+        Base URL for asset hrefs, by default "https://data.cresis.ku.edu/data/rds/"
+    max_items : int, optional
+        Maximum number of items to process, by default 10
+    campaign_filter : List[str], optional
+        Specific campaigns to process, by default None (all campaigns)
+    verbose : bool, optional
+        If True, print details for each item being processed, by default False
+    parallel_flights : bool, optional
+        If True, process flights within campaigns in parallel, by default False
+    parallel_campaigns : bool, optional
+        If True, process campaigns in parallel, by default False
+        
+    Returns
+    -------
+    pystac.Catalog
+        The built STAC catalog
+    """
+    catalog = create_catalog(catalog_id=catalog_id)
+    campaigns = discover_campaigns(data_root)
+    
+    # Filter campaigns if specified
+    if campaign_filter:
+        campaigns = [c for c in campaigns if c['name'] in campaign_filter]
+    
+    if parallel_campaigns:
+        print(f"🔄 Processing {len(campaigns)} campaigns in parallel...")
+        
+        # Process campaigns in parallel
+        campaign_futures = []
+        for campaign in campaigns:
+            future = process_campaign_delayed(
+                campaign, data_root, data_product, extra_data_products, 
+                base_url, max_items, verbose, parallel_flights
+            )
+            campaign_futures.append(future)
+        
+        # Compute all campaign futures
+        print("Computing campaign processing results...")
+        campaign_collections = dask.compute(*campaign_futures)
+        
+    else:
+        # Process campaigns sequentially
+        campaign_collections = []
+        for campaign in campaigns:
+            collection = process_campaign_delayed(
+                campaign, data_root, data_product, extra_data_products, 
+                base_url, max_items, verbose, parallel_flights
+            ).compute()
+            campaign_collections.append(collection)
+    
+    # Filter out failed campaigns and add to catalog
+    valid_collections = [c for c in campaign_collections if c is not None]
+    for collection in valid_collections:
+        catalog.add_child(collection)
+    
+    # Save catalog
+    output_path.mkdir(parents=True, exist_ok=True)
+    catalog.normalize_and_save(
+        root_href=str(output_path),
+        catalog_type=pystac.CatalogType.SELF_CONTAINED
+    )
+    
+    print(f"Catalog saved to {output_path}")
+    return catalog
 
 
 def main():
@@ -386,6 +810,38 @@ def main():
         action="store_true",
         help="Print details for each STAC item being processed"
     )
+    parser.add_argument(
+        "--parallel",
+        action="store_true",
+        help="Enable parallel processing using Dask"
+    )
+    parser.add_argument(
+        "--parallel-items",
+        action="store_true",
+        help="Parallelize item creation within flights"
+    )
+    parser.add_argument(
+        "--parallel-flights",
+        action="store_true",
+        help="Parallelize flight processing within campaigns"
+    )
+    parser.add_argument(
+        "--parallel-campaigns",
+        action="store_true",
+        help="Parallelize campaign processing"
+    )
+    parser.add_argument(
+        "--n-workers",
+        type=int,
+        default=None,
+        help="Number of Dask workers (default: auto-detect based on CPU cores)"
+    )
+    parser.add_argument(
+        "--scheduler-address",
+        type=str,
+        default=None,
+        help="Address of existing Dask scheduler (e.g., 'tcp://scheduler:8786')"
+    )
 
     args = parser.parse_args()
 
@@ -398,20 +854,55 @@ def main():
     print(f"   Output directory: {args.output_dir}")
     print(f"   Data product: {args.data_product}")
     print(f"   Base URL: {args.base_url}")
+    
+    # Check for parallel processing options
+    parallel_enabled = (args.parallel or args.parallel_items or 
+                       args.parallel_flights or args.parallel_campaigns)
+    
+    if parallel_enabled:
+        print(f"   🔄 Parallel processing enabled:")
+        if args.parallel or args.parallel_flights:
+            print(f"     • Flight processing: parallel")
+        if args.parallel or args.parallel_campaigns:
+            print(f"     • Campaign processing: parallel")
     print()
 
     try:
-        # Build the catalog with custom processing
-        catalog = build_limited_catalog(
-            data_root=args.data_root,
-            output_path=args.output_dir,
-            catalog_id=args.catalog_id,
-            data_product=args.data_product,
-            base_url=args.base_url,
-            max_items=args.max_items,
-            campaign_filter=args.campaigns,
-            verbose=args.verbose
-        )
+        # Set up Dask client if parallel processing is enabled
+        client = setup_dask_client(args)
+        
+        try:
+            if parallel_enabled:
+                # Use parallel catalog building
+                catalog = build_parallel_catalog(
+                    data_root=args.data_root,
+                    output_path=args.output_dir,
+                    catalog_id=args.catalog_id,
+                    data_product=args.data_product,
+                    base_url=args.base_url,
+                    max_items=args.max_items,
+                    campaign_filter=args.campaigns,
+                    verbose=args.verbose,
+                    parallel_flights=(args.parallel or args.parallel_flights),
+                    parallel_campaigns=(args.parallel or args.parallel_campaigns)
+                )
+            else:
+                # Use original sequential processing
+                catalog = build_limited_catalog(
+                    data_root=args.data_root,
+                    output_path=args.output_dir,
+                    catalog_id=args.catalog_id,
+                    data_product=args.data_product,
+                    base_url=args.base_url,
+                    max_items=args.max_items,
+                    campaign_filter=args.campaigns,
+                    verbose=args.verbose
+                )
+        finally:
+            # Clean up Dask client
+            if client is not None:
+                print("🔚 Shutting down Dask client...")
+                client.close()
 
         print("\n✅ Catalog built successfully!")
         print(f"   Saved to: {args.output_dir}")
