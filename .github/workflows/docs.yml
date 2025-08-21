@@ -25,23 +25,23 @@ jobs:
     steps:
     - uses: actions/checkout@v4
     
-    - name: Set up Miniconda
-      uses: conda-incubator/setup-miniconda@v3
-      with:
-        auto-update-conda: true
-        python-version: '3.12'
-        environment-file: environment.yml
-        activate-environment: xopr-test
+    - name: Install uv
+      uses: astral-sh/setup-uv@v4
     
-    - name: Install package
-      shell: bash -l {0}
+    - name: Set up Python
+      run: uv python install 3.12
+    
+    - name: Install dependencies
       run: |
-        pip install -e .
+        uv sync --extra test --extra stac
+    
+    - name: Install package in development mode
+      run: |
+        uv pip install -e .
     
     - name: Run tests with pytest
-      shell: bash -l {0}
       run: |
-        pytest --cov=xopr --cov-report=html --cov-report=xml --cov-report=term
+        uv run pytest --cov=xopr --cov-report=html --cov-report=xml --cov-report=term
     
     - name: Upload coverage artifacts
       uses: actions/upload-artifact@v4
