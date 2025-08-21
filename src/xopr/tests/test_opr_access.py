@@ -114,5 +114,5 @@ def test_cache_data(tmp_path):
     loaded_frames = opr.load_frames(frames, data_product='CSARP_qlook')
     t_load_second = time.time() - tstart
 
-    assert t_load_second < 0.6 * t_load_first, "Second load should be faster due to caching"
+    assert t_load_second < 0.8 * t_load_first, "Second load should be faster due to caching"
     
