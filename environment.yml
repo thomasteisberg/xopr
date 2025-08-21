@@ -2,7 +2,7 @@ name: xopr-test
 channels:
   - conda-forge
 dependencies:
-  # Core project dependencies
+  # Core project dependencies  
   - python>=3.10
   - numpy
   - scipy
@@ -12,21 +12,23 @@ dependencies:
   - matplotlib
   - aiohttp
   - geoviews
-  - pystac
   - shapely
   - geopandas
   - h5py
   - fsspec
-  - pip:
-    - stac_asset
-    - stac_geoparquet
+  - dask
   
   # Testing and code quality tools
   - pytest
   - pytest-cov
   - coverage
   - flake8
-  
-  # Optional: Additional useful testing tools
   - pytest-xdist  # parallel test execution
   - pytest-mock   # mocking support
+  
+  # STAC-specific dependencies (optional - for STAC functionality and testing)
+  - pystac
+  - pip:
+    - stac_asset
+    - stac_geoparquet
+    - stac-validator

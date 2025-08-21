@@ -17,20 +17,20 @@ dependencies = [
     "matplotlib",
     "aiohttp",
     "geoviews",
-    "pystac",
     "shapely",
     "geopandas",
     "h5py",
     "pystac_client",
-    "stac_asset",
     "fsspec",
     "dask[distributed]"
 ]
 
 [project.optional-dependencies]
 stac = [
-    "stac-fastapi-geoparquet[serve]",
+    "pystac",
+    "stac_asset",
     "stac-geoparquet",
+    "stac-fastapi-geoparquet[serve]",
 ]
 docs = [
     "jupyter-book>=2.0.0a0",
@@ -41,7 +41,9 @@ docs = [
     "jupyter_bokeh",
 ]
 test = [
-    "pytest"
+    "pytest",
+    "stac-validator",
+    "xopr[stac]"
 ]
 
 [tool.hatch.version]
