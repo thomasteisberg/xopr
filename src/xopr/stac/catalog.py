@@ -156,7 +156,8 @@ def create_items_from_flight_data(
     flight_data: Dict[str, Any],
     base_url: str = "https://data.cresis.ku.edu/data/rds/",
     campaign_name: str = "",
-    primary_data_product: str = "CSARP_standard"
+    primary_data_product: str = "CSARP_standard",
+    verbose: bool = False
 ) -> List[pystac.Item]:
     """
     Create STAC items from flight line data.
@@ -172,6 +173,8 @@ def create_items_from_flight_data(
         Campaign name for URL construction.
     primary_data_product : str, default "CSARP_standard"
         Data product name to use as primary data source.
+    verbose : bool, default False
+        If True, print details for each item being processed.
         
     Returns
     -------
@@ -248,7 +251,8 @@ def create_items_from_flight_data(
             if data_path.name in flight_data['data_files'][data_product_type]:
                 product_path = flight_data['data_files'][data_product_type][data_path.name]
                 file_type = metadata.get('mimetype') # get_mat_file_type(product_path)
-                print(f"[{file_type}] {product_path}")
+                if verbose:
+                    print(f"[{file_type}] {product_path}")
                 assets[data_product_type] = pystac.Asset(
                     href=base_url + f"{campaign_name}/{data_product_type}/{flight_id}/{data_path.name}",
                     media_type=file_type
@@ -346,7 +350,8 @@ def build_limited_catalog(
                                       'CSARP_qlook'],
     base_url: str = "https://data.cresis.ku.edu/data/rds/",
     max_items: int = 10,
-    campaign_filter: list = None
+    campaign_filter: list = None,
+    verbose: bool = False
 ) -> pystac.Catalog:
     """
     Build STAC catalog with limits for faster processing.
@@ -369,6 +374,8 @@ def build_limited_catalog(
         Maximum number of items to process, by default 10
     campaign_filter : List[str], optional
         Specific campaigns to process, by default None (all campaigns)
+    verbose : bool, optional
+        If True, print details for each item being processed, by default False
 
     Returns
     -------
@@ -412,7 +419,7 @@ def build_limited_catalog(
         for flight_data in flight_lines:
             try:
                 items = create_items_from_flight_data(
-                    flight_data, base_url, campaign_name, data_product
+                    flight_data, base_url, campaign_name, data_product, verbose
                 )
 
                 # Create flight collection

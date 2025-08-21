@@ -3,6 +3,7 @@ Metadata extraction utilities for OPR STAC catalog creation.
 """
 
 import re
+import warnings
 from pathlib import Path
 from typing import Dict, List, Any, Union
 
@@ -84,7 +85,9 @@ def extract_item_metadata(mat_file_path: Union[str, Path] = None,
     else:
         ds = dataset
 
-    date = pd.to_datetime(ds['slow_time'].mean().values).to_pydatetime()
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", UserWarning)
+        date = pd.to_datetime(ds['slow_time'].mean().values).to_pydatetime()
 
     # Create geometry from coordinates
     geom_series = gpd.GeoSeries(map(Point, zip(ds['Longitude'].values,
