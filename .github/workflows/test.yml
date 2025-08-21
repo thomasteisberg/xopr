@@ -32,8 +32,8 @@ jobs:
     
     - name: Run flake8
       run: |
-        uv run flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
-        uv run flake8 . --count --exit-zero --max-complexity=10 --max-line-length=88 --statistics
+        uv run flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics --exclude=.venv,build,dist,*.egg-info,.git,.pytest_cache,__pycache__
+        uv run flake8 . --count --exit-zero --max-complexity=10 --max-line-length=88 --statistics --exclude=.venv,build,dist,*.egg-info,.git,.pytest_cache,__pycache__
     
     - name: Run tests with pytest
       run: |
