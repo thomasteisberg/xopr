@@ -381,6 +381,11 @@ def main():
         help="Skip collections.json metadata file (default is to "
              "create it)"
     )
+    parser.add_argument(
+        "--verbose",
+        action="store_true",
+        help="Print details for each STAC item being processed"
+    )
 
     args = parser.parse_args()
 
@@ -404,7 +409,8 @@ def main():
             data_product=args.data_product,
             base_url=args.base_url,
             max_items=args.max_items,
-            campaign_filter=args.campaigns
+            campaign_filter=args.campaigns,
+            verbose=args.verbose
         )
 
         print("\n✅ Catalog built successfully!")
