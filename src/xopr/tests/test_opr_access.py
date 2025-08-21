@@ -99,6 +99,10 @@ def test_cache_data(tmp_path):
 
     opr = xopr.OPRConnection(cache_dir=str(tmp_path))
 
+    # List contents of the cache directory before loading
+    initial_cache_contents = list(tmp_path.iterdir())
+    print(f"Initial cache contents: {initial_cache_contents}")
+
     season, flight_id = '2016_Antarctica_DC8', '20161117_06'
     frames = opr.query_frames(seasons=season, flight_ids=flight_id, max_items=1)
     assert len(frames) == 1, "Expected one frame for the given season and flight ID"
@@ -107,12 +111,18 @@ def test_cache_data(tmp_path):
     loaded_frames = opr.load_frames(frames, data_product='CSARP_qlook')
     t_load_first = time.time() - tstart
 
+    print(f"First load time: {t_load_first:.2f} seconds")
+    print(f"Cache contents after first load: {list(tmp_path.iterdir())}")
+
     assert len(loaded_frames) == 1, "Expected one loaded frame"
 
     # Re-load the same frame again
     tstart = time.time()
     loaded_frames = opr.load_frames(frames, data_product='CSARP_qlook')
     t_load_second = time.time() - tstart
+
+    print(f"Second load time: {t_load_second:.2f} seconds")
+    print(f"Cache contents after second load: {list(tmp_path.iterdir())}")
 
     assert t_load_second < 0.8 * t_load_first, "Second load should be faster due to caching"
     
