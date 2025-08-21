@@ -42,6 +42,8 @@ docs = [
 ]
 test = [
     "pytest",
+    "pytest-cov",
+    "flake8",
     "stac-validator",
     "xopr[stac]"
 ]
