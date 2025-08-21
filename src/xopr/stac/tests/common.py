@@ -207,7 +207,7 @@ def create_mock_stac_item(doi=None, citation=None, sar_freq=190e6, sar_bandwidth
     # Default extensions
     item.stac_extensions = [
         'https://stac-extensions.github.io/file/v2.1.0/schema.json',
-        'https://stac-extensions.github.io/sar/v1.0.0/schema.json'
+        'https://stac-extensions.github.io/sar/v1.3.0/schema.json'
     ]
     
     # Add scientific extension if scientific properties exist
@@ -227,5 +227,5 @@ TEST_CITATION = "Test Citation"
 
 # STAC extension URLs
 SCI_EXT = 'https://stac-extensions.github.io/scientific/v1.0.0/schema.json'
-SAR_EXT = 'https://stac-extensions.github.io/sar/v1.0.0/schema.json'
+SAR_EXT = 'https://stac-extensions.github.io/sar/v1.3.0/schema.json'
 FILE_EXT = 'https://stac-extensions.github.io/file/v2.1.0/schema.json'
