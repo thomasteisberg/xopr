@@ -17,8 +17,8 @@ from .metadata import extract_item_metadata, discover_campaigns, discover_flight
 
 # STAC extension URLs
 SCI_EXT = 'https://stac-extensions.github.io/scientific/v1.0.0/schema.json'
-SAR_EXT = 'https://stac-extensions.github.io/sar/v1.0.0/schema.json'
-PROJ_EXT = 'https://stac-extensions.github.io/projection/v1.1.0/schema.json'
+SAR_EXT = 'https://stac-extensions.github.io/sar/v1.3.0/schema.json'
+PROJ_EXT = 'https://stac-extensions.github.io/projection/v2.0.0/schema.json'
 
 
 def create_catalog(
@@ -46,7 +46,7 @@ def create_catalog(
     """
     if stac_extensions is None:
         stac_extensions = [
-            'https://stac-extensions.github.io/projection/v1.0.0/schema.json',
+            'https://stac-extensions.github.io/projection/v2.0.0/schema.json',
             'https://stac-extensions.github.io/file/v2.1.0/schema.json',
         ]
     
@@ -260,7 +260,7 @@ def create_items_from_flight_data(
             properties['sar:bandwidth'] = metadata['bandwidth']
         
         if metadata.get('frequency') is not None or metadata.get('bandwidth') is not None:
-            item_stac_extensions.append('https://stac-extensions.github.io/sar/v1.0.0/schema.json')
+            item_stac_extensions.append('https://stac-extensions.github.io/sar/v1.3.0/schema.json')
         
         assets = {}
 

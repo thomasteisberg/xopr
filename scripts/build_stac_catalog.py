@@ -26,7 +26,7 @@ from xopr.stac import (
 
 # STAC extension URLs
 SCI_EXT = 'https://stac-extensions.github.io/scientific/v1.0.0/schema.json'
-SAR_EXT = 'https://stac-extensions.github.io/sar/v1.0.0/schema.json'
+SAR_EXT = 'https://stac-extensions.github.io/sar/v1.3.0/schema.json'
 
 
 def print_catalog_structure(catalog: pystac.Catalog, indent: int = 0) -> None:
