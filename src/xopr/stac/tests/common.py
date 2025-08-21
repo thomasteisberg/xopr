@@ -195,9 +195,14 @@ def create_mock_stac_item(doi=None, citation=None, sar_freq=190e6, sar_bandwidth
     if sar_bandwidth is not None:
         item.properties['sar:bandwidth'] = sar_bandwidth
     
-    # Mock bbox and datetime for extent calculation
+    # Mock bbox, datetime, and geometry for extent calculation
     item.bbox = [-69.86, -71.37, -69.84, -71.35]
     item.datetime = datetime(2016, 10, 14, 16, 12, 44)
+    
+    # Add geometry as GeoJSON (required by merge_item_geometries)
+    from shapely.geometry import LineString, mapping
+    line_geom = LineString([(-69.86, -71.35), (-69.85, -71.36), (-69.84, -71.37)])
+    item.geometry = mapping(line_geom)
     
     # Default extensions
     item.stac_extensions = [

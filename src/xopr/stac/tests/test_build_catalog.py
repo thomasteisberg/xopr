@@ -51,7 +51,15 @@ class TestBuildLimitedCatalog:
         mock_create_collection.side_effect = [mock_flight_collection, mock_campaign_collection]
         
         # Test
-        with patch('pathlib.Path.mkdir'), patch('xopr.stac.catalog.build_collection_extent'):
+        with patch('pathlib.Path.mkdir'), \
+             patch('xopr.stac.catalog.build_collection_extent'), \
+             patch('xopr.stac.catalog.build_collection_extent_and_geometry') as mock_extent_geom, \
+             patch('xopr.stac.catalog.merge_flight_geometries') as mock_merge_geom:
+            # Mock the extent and geometry functions
+            mock_extent = Mock(spec=pystac.Extent)
+            mock_extent_geom.return_value = (mock_extent, {"type": "LineString", "coordinates": [[-69.86, -71.35], [-69.84, -71.37]]})
+            mock_merge_geom.return_value = {"type": "MultiLineString", "coordinates": [[[-69.86, -71.35], [-69.84, -71.37]]]}
+            
             catalog = build_limited_catalog(
                 data_root=Path('/test'),
                 output_path=Path('/output'),
@@ -111,7 +119,15 @@ class TestBuildLimitedCatalog:
         mock_create_collection.side_effect = [mock_flight_collection, mock_campaign_collection]
         
         # Test
-        with patch('pathlib.Path.mkdir'), patch('xopr.stac.catalog.build_collection_extent'):
+        with patch('pathlib.Path.mkdir'), \
+             patch('xopr.stac.catalog.build_collection_extent'), \
+             patch('xopr.stac.catalog.build_collection_extent_and_geometry') as mock_extent_geom, \
+             patch('xopr.stac.catalog.merge_flight_geometries') as mock_merge_geom:
+            # Mock the extent and geometry functions
+            mock_extent = Mock(spec=pystac.Extent)
+            mock_extent_geom.return_value = (mock_extent, {"type": "LineString", "coordinates": [[-69.86, -71.35], [-69.84, -71.37]]})
+            mock_merge_geom.return_value = {"type": "MultiLineString", "coordinates": [[[-69.86, -71.35], [-69.84, -71.37]]]}
+            
             catalog = build_limited_catalog(
                 data_root=Path('/test'),
                 output_path=Path('/output'),
@@ -169,7 +185,15 @@ class TestBuildLimitedCatalog:
         mock_create_collection.side_effect = [mock_flight_collection, mock_campaign_collection]
         
         # Test
-        with patch('pathlib.Path.mkdir'), patch('xopr.stac.catalog.build_collection_extent'):
+        with patch('pathlib.Path.mkdir'), \
+             patch('xopr.stac.catalog.build_collection_extent'), \
+             patch('xopr.stac.catalog.build_collection_extent_and_geometry') as mock_extent_geom, \
+             patch('xopr.stac.catalog.merge_flight_geometries') as mock_merge_geom:
+            # Mock the extent and geometry functions
+            mock_extent = Mock(spec=pystac.Extent)
+            mock_extent_geom.return_value = (mock_extent, {"type": "LineString", "coordinates": [[-69.86, -71.35], [-69.84, -71.37]]})
+            mock_merge_geom.return_value = {"type": "MultiLineString", "coordinates": [[[-69.86, -71.35], [-69.84, -71.37]]]}
+            
             catalog = build_limited_catalog(
                 data_root=Path('/test'),
                 output_path=Path('/output'),
@@ -227,7 +251,15 @@ class TestBuildLimitedCatalog:
         mock_create_collection.side_effect = collections
         
         # Test
-        with patch('pathlib.Path.mkdir'), patch('xopr.stac.catalog.build_collection_extent'):
+        with patch('pathlib.Path.mkdir'), \
+             patch('xopr.stac.catalog.build_collection_extent'), \
+             patch('xopr.stac.catalog.build_collection_extent_and_geometry') as mock_extent_geom, \
+             patch('xopr.stac.catalog.merge_flight_geometries') as mock_merge_geom:
+            # Mock the extent and geometry functions
+            mock_extent = Mock(spec=pystac.Extent)
+            mock_extent_geom.return_value = (mock_extent, {"type": "LineString", "coordinates": [[-69.86, -71.35], [-69.84, -71.37]]})
+            mock_merge_geom.return_value = {"type": "MultiLineString", "coordinates": [[[-69.86, -71.35], [-69.84, -71.37]]]}
+            
             catalog = build_limited_catalog(
                 data_root=Path('/test'),
                 output_path=Path('/output'),
