@@ -49,7 +49,8 @@ class OPRConnection:
             self.fsspec_url_prefix = 'filecache::'
 
     def query_frames(self, seasons: list[str] = None, flight_ids: list[str] = None, geometry = None, date_range: tuple = None,
-                     parameters: dict = {}, max_items: int = None, full_flights: bool = False, exclude_geometry: bool = False) -> list:
+                     parameters: dict = {}, max_items: int = None, full_flights: bool = False, exclude_geometry: bool = False,
+                     return_type='dict', return_iterator=False, search_kwargs: dict = {}) -> list:
         """
         Query for radar frames based on various search criteria. All criteria are combined with AND logic.
         Lists passed to seasons or flight_ids are combined with OR logic.
@@ -73,64 +74,49 @@ class OPRConnection:
         full_flights : bool, optional
             If True, return all frames from matching flights.
         exclude_geometry : bool, optional
-            If True, exclude geometry and bbox fields from the response to reduce size.
+            If True, exclude the geometry field from the response to reduce size.
+        return_type : str, optional
+            The type of response to return. Options are 'dict', 'pystac', or 'search'.
+            'search' will return a pystac_client.Search object that can be manually
+            queried.
+        return_iterator : bool, optional
+            If True, return an iterator over the results instead of a list.
+            This is useful for working with large result sets.
+        search_kwargs : dict, optional
+            Additional keyword arguments to pass to the search method.
 
         Returns
         -------
         list[dict]
             List of STAC frames matching the query criteria.
         """
+
+        # Set up STAC client for normal queries
+        client = pystac_client.Client.open(self.stac_api_url)
+        search_params = {}
+
         # Use direct requests when excluding geometry, otherwise use pystac_client
         if exclude_geometry:
-            search_url = f"{self.stac_api_url}/search"
-            search_body = {
-                'fields': {
-                    'exclude': ['geometry', 'bbox']
-                }
-            }
-            use_direct_requests = True
-        else:
-            # Set up STAC client for normal queries
-            client = pystac_client.Client.open(self.stac_api_url)
-            search_params = {}
-            use_direct_requests = False
+            search_params['fields'] = ['-geometry']
         
         # Handle collections (seasons)
         if seasons is not None:
             if isinstance(seasons, str):
                 seasons = [seasons]
-            if use_direct_requests:
-                search_body['collections'] = seasons
-            else:
-                search_params['collections'] = seasons
+            search_params['collections'] = seasons
         
         # Handle geometry filtering
         if geometry is not None:
-            # Convert input geometry to GeoJSON format
-            if isinstance(geometry, str):
-                geometry_geojson = json.loads(geometry)
-            elif isinstance(geometry, dict):
-                geometry_geojson = geometry
-            elif hasattr(geometry, '__geo_interface__'):
-                geometry_geojson = geometry.__geo_interface__
-            else:
-                raise ValueError(
-                    "geometry must be a GeoJSON string, GeoJSON dict, or object implementing __geo_interface__"
-                )
-            if use_direct_requests:
-                search_body['intersects'] = geometry_geojson
-            else:
-                search_params['intersects'] = geometry_geojson
+            search_params['intersects'] = geometry
         
         # Handle date range filtering
         if date_range is not None:
-            start_date, end_date = date_range
-            datetime_str = f"{start_date}/{end_date}"
-            if use_direct_requests:
-                search_body['datetime'] = datetime_str
-            else:
-                search_params['datetime'] = datetime_str
-        
+            search_params['datetime'] = date_range
+
+        # Handle max_items
+        if max_items is not None:
+            search_params['max_items'] = max_items
+
         # Handle flight_ids filtering using CQL2
         filter_conditions = []
         
@@ -191,104 +177,64 @@ class OPRConnection:
                     "args": filter_conditions
                 }
             
-            if use_direct_requests:
-                search_body['filter'] = filter_expr
-            else:
-                search_params['filter'] = filter_expr
+            search_params['filter'] = filter_expr
         
+        # Add any extra kwargs to search
+        search_params.update(search_kwargs)
+
         # Perform the search
-        try:
-            if use_direct_requests:
-                # Use direct requests with pagination for exclude_geometry
-                all_items = []
-                limit = 500
-                current_offset = 0
+        search = client.search(**search_params)
+        if return_type == 'dict':
+            items = search.items_as_dicts()
+        elif return_type == 'pystac':
+            items = search.items()
+        elif (not full_flights) and (return_type == 'search'):
+            return search
+        else:
+            raise ValueError(f"Unsupported return_type: {return_type}. Use 'dict', 'pystac', or 'search'.")
+
+        if not return_iterator:
+            items = list(items)
+        
+        if items and not full_flights:
+            return items
+        elif items and full_flights:
+            # Get all flights that match the criteria, then get all frames from those flights
+            matching_flights = set()
+            for item in items:
+                # Handle both dict items (from direct requests) and pystac Item objects
+                if isinstance(item, dict):
+                    properties = item.get('properties', {})
+                    collection = item.get('collection')
+                else:
+                    properties = item.properties
+                    collection = item.collection_id
                 
-                while True:
-                    # Set pagination parameters
-                    current_search_body = search_body.copy()
-                    current_search_body['limit'] = limit
-                    if current_offset > 0:
-                        current_search_body['offset'] = current_offset
-                    
-                    # Apply max_items limit if specified
-                    if max_items is not None:
-                        remaining_items = max_items - len(all_items)
-                        if remaining_items <= 0:
-                            break
-                        current_search_body['limit'] = min(limit, remaining_items)
-                    
-                    response = requests.post(search_url, json=current_search_body)
-                    response.raise_for_status()
-                    data = response.json()
-                    
-                    # Add items from this page
-                    features = data.get('features', [])
-                    if not features:
-                        break
-                    
-                    all_items.extend(features)
-                    
-                    # Check if we've reached the end or hit max_items
-                    if len(features) < limit or (max_items is not None and len(all_items) >= max_items):
-                        break
-                    
-                    current_offset += limit
+                date = properties.get('opr:date')
+                flight_num = properties.get('opr:flight')
                 
-                items = all_items
-            else:
-                # Use pystac_client for normal queries
-                if max_items is not None:
-                    search_params['max_items'] = max_items
-                
-                search = client.search(**search_params)
-                items = list(search.items())
-                
-                # Convert pystac items to dictionaries for consistency
-                items = [item.to_dict() for item in items]
+                if date and flight_num is not None and collection:
+                    flight_key = f"{date}_{flight_num:02d}"
+                    matching_flights.add((collection, flight_key))
             
-            print(f"Found {len(items)} frames matching the query criteria")
+            # Recursively call query_frames for each flight to get all frames
+            all_flight_frames = []
+            for collection, flight_id in matching_flights:
+                flight_frames = self.query_frames(
+                    seasons=[collection],
+                    flight_ids=[flight_id],
+                    max_items=None,
+                    full_flights=False,  # Avoid infinite recursion
+                    exclude_geometry=exclude_geometry,  # Preserve the exclude_geometry setting
+                    return_type=return_type,
+                    return_iterator=return_iterator,
+                    search_kwargs=search_kwargs
+                )
+                all_flight_frames.extend(flight_frames)
             
-            if items and not full_flights:
-                return items
-            elif items and full_flights:
-                # Get all flights that match the criteria, then get all frames from those flights
-                matching_flights = set()
-                for item in items:
-                    # Handle both dict items (from direct requests) and pystac Item objects
-                    if isinstance(item, dict):
-                        properties = item.get('properties', {})
-                        collection = item.get('collection')
-                    else:
-                        properties = item.properties
-                        collection = item.collection_id
-                    
-                    date = properties.get('opr:date')
-                    flight_num = properties.get('opr:flight')
-                    
-                    if date and flight_num is not None and collection:
-                        flight_key = f"{date}_{flight_num:02d}"
-                        matching_flights.add((collection, flight_key))
-                
-                # Recursively call query_frames for each flight to get all frames
-                all_flight_frames = []
-                for collection, flight_id in matching_flights:
-                    flight_frames = self.query_frames(
-                        seasons=[collection],
-                        flight_ids=[flight_id],
-                        max_items=None,
-                        full_flights=False,  # Avoid infinite recursion
-                        exclude_geometry=exclude_geometry  # Preserve the exclude_geometry setting
-                    )
-                    all_flight_frames.extend(flight_frames)
-                
-                print(f"Expanded to {len(all_flight_frames)} frames from {len(matching_flights)} full flights")
-                return all_flight_frames
-            else:
-                return []
-                
-        except Exception as e:
-            print(f"Error performing search: {e}")
+            print(f"Expanded to {len(all_flight_frames)} frames from {len(matching_flights)} full flights")
+            return all_flight_frames
+        else:
             return []
 
     def load_frames(self, stac_items: list[dict],

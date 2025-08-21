@@ -2,6 +2,7 @@ import pytest
 import time
 
 import xopr
+import xopr.geometry
 
 def test_get_collections():
     """
@@ -120,3 +121,35 @@ def test_cache_data(tmp_path):
     assert len(list(tmp_path.iterdir())) > 0, "Cache directory should not be empty after loading frames"
 
     assert len(loaded_frames) == n_frames, f"Expected {n_frames} loaded frames"
+
+@pytest.mark.parametrize("query_params",
+    [
+        pytest.param({'seasons': '2022_Antarctica_BaslerMKB', 'flight_ids': '20230109_01'}, id='single_season_flight'),
+        pytest.param({'geometry': xopr.geometry.get_antarctic_regions(name=['LarsenD', 'LarsenE'])}, id='single_region_geometry'),
+    ]
+)
+def test_exclude_geometry(query_params):
+
+    max_items = 5
+
+    opr = xopr.OPRConnection()
+
+    items_with_geometry = opr.query_frames(**query_params, max_items=max_items)
+    assert len(items_with_geometry) > 0, "Expected query to return items"
+
+    items_without_geometry = opr.query_frames(**query_params, exclude_geometry=True, max_items=max_items)
+    
+    assert len(items_without_geometry) == len(items_with_geometry), "Expected same number of items with and without geometry"
+
+    # Sort items by 'id' to ensure consistent comparison
+    items_with_geometry.sort(key=lambda x: x['id'])
+    items_without_geometry.sort(key=lambda x: x['id'])
+
+    for (w_geom, wo_geom) in zip(items_with_geometry, items_without_geometry):
+        assert w_geom['geometry'] is not None, "Expected geometry to be present in items with geometry"
+        assert ('geometry' not in wo_geom.keys()) or (wo_geom['geometry'] is None), "Expected geometry to be excluded in items without geometry"
+
+        for key in wo_geom:
+            if key in ['geometry', 'links']:
+                continue
+            assert w_geom[key] == wo_geom[key], f"Expected {key} to match in both items, got {w_geom[key]} != {wo_geom[key]}"
