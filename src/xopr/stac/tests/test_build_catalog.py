@@ -7,10 +7,8 @@ from pathlib import Path
 
 import pystac
 
-# Import the function we're testing from the scripts directory
-import sys
-sys.path.append('/home/espg/software/xopr/scripts')
-from build_stac_catalog import build_limited_catalog
+# Import the function we're testing from the catalog module
+from xopr.stac.catalog import build_limited_catalog
 
 from .common import create_mock_stac_item, TEST_DOI, SCI_EXT
 
@@ -18,11 +16,11 @@ from .common import create_mock_stac_item, TEST_DOI, SCI_EXT
 class TestBuildLimitedCatalog:
     """Test the build_limited_catalog function collection logic."""
 
-    @patch('build_stac_catalog.discover_campaigns')
-    @patch('build_stac_catalog.discover_flight_lines')
-    @patch('build_stac_catalog.create_items_from_flight_data')
-    @patch('build_stac_catalog.create_catalog')
-    @patch('build_stac_catalog.create_collection')
+    @patch('xopr.stac.catalog.discover_campaigns')
+    @patch('xopr.stac.catalog.discover_flight_lines')
+    @patch('xopr.stac.catalog.create_items_from_flight_data')
+    @patch('xopr.stac.catalog.create_catalog')
+    @patch('xopr.stac.catalog.create_collection')
     def test_flight_collection_no_scientific_metadata(self, mock_create_collection, 
                                                     mock_create_catalog, mock_create_items,
                                                     mock_discover_flights, mock_discover_campaigns):
@@ -53,7 +51,7 @@ class TestBuildLimitedCatalog:
         mock_create_collection.side_effect = [mock_flight_collection, mock_campaign_collection]
         
         # Test
-        with patch('pathlib.Path.mkdir'), patch('build_stac_catalog.build_collection_extent'):
+        with patch('pathlib.Path.mkdir'), patch('xopr.stac.catalog.build_collection_extent'):
             catalog = build_limited_catalog(
                 data_root=Path('/test'),
                 output_path=Path('/output'),
@@ -74,11 +72,11 @@ class TestBuildLimitedCatalog:
         assert 'sci:doi' not in mock_flight_collection.extra_fields
         assert 'sci:citation' not in mock_flight_collection.extra_fields
 
-    @patch('build_stac_catalog.discover_campaigns')
-    @patch('build_stac_catalog.discover_flight_lines')
-    @patch('build_stac_catalog.create_items_from_flight_data')
-    @patch('build_stac_catalog.create_catalog')
-    @patch('build_stac_catalog.create_collection')
+    @patch('xopr.stac.catalog.discover_campaigns')
+    @patch('xopr.stac.catalog.discover_flight_lines')
+    @patch('xopr.stac.catalog.create_items_from_flight_data')
+    @patch('xopr.stac.catalog.create_catalog')
+    @patch('xopr.stac.catalog.create_collection')
     def test_flight_collection_with_unique_doi(self, mock_create_collection, 
                                              mock_create_catalog, mock_create_items,
                                              mock_discover_flights, mock_discover_campaigns):
@@ -113,7 +111,7 @@ class TestBuildLimitedCatalog:
         mock_create_collection.side_effect = [mock_flight_collection, mock_campaign_collection]
         
         # Test
-        with patch('pathlib.Path.mkdir'), patch('build_stac_catalog.build_collection_extent'):
+        with patch('pathlib.Path.mkdir'), patch('xopr.stac.catalog.build_collection_extent'):
             catalog = build_limited_catalog(
                 data_root=Path('/test'),
                 output_path=Path('/output'),
@@ -133,11 +131,11 @@ class TestBuildLimitedCatalog:
         # Extra fields should have DOI
         assert mock_flight_collection.extra_fields['sci:doi'] == test_doi
 
-    @patch('build_stac_catalog.discover_campaigns')
-    @patch('build_stac_catalog.discover_flight_lines')
-    @patch('build_stac_catalog.create_items_from_flight_data')
-    @patch('build_stac_catalog.create_catalog')
-    @patch('build_stac_catalog.create_collection')
+    @patch('xopr.stac.catalog.discover_campaigns')
+    @patch('xopr.stac.catalog.discover_flight_lines')
+    @patch('xopr.stac.catalog.create_items_from_flight_data')
+    @patch('xopr.stac.catalog.create_catalog')
+    @patch('xopr.stac.catalog.create_collection')
     def test_flight_collection_with_multiple_dois_no_aggregation(self, mock_create_collection,
                                                                mock_create_catalog, mock_create_items,
                                                                mock_discover_flights, mock_discover_campaigns):
@@ -171,7 +169,7 @@ class TestBuildLimitedCatalog:
         mock_create_collection.side_effect = [mock_flight_collection, mock_campaign_collection]
         
         # Test
-        with patch('pathlib.Path.mkdir'), patch('build_stac_catalog.build_collection_extent'):
+        with patch('pathlib.Path.mkdir'), patch('xopr.stac.catalog.build_collection_extent'):
             catalog = build_limited_catalog(
                 data_root=Path('/test'),
                 output_path=Path('/output'),
@@ -191,11 +189,11 @@ class TestBuildLimitedCatalog:
         # Extra fields should not have DOI (multiple unique values)
         assert 'sci:doi' not in mock_flight_collection.extra_fields
 
-    @patch('build_stac_catalog.discover_campaigns')
-    @patch('build_stac_catalog.discover_flight_lines')
-    @patch('build_stac_catalog.create_items_from_flight_data')
-    @patch('build_stac_catalog.create_catalog')
-    @patch('build_stac_catalog.create_collection')
+    @patch('xopr.stac.catalog.discover_campaigns')
+    @patch('xopr.stac.catalog.discover_flight_lines')
+    @patch('xopr.stac.catalog.create_items_from_flight_data')
+    @patch('xopr.stac.catalog.create_catalog')
+    @patch('xopr.stac.catalog.create_collection')
     def test_campaign_collection_aggregation(self, mock_create_collection,
                                            mock_create_catalog, mock_create_items,
                                            mock_discover_flights, mock_discover_campaigns):
@@ -229,7 +227,7 @@ class TestBuildLimitedCatalog:
         mock_create_collection.side_effect = collections
         
         # Test
-        with patch('pathlib.Path.mkdir'), patch('build_stac_catalog.build_collection_extent'):
+        with patch('pathlib.Path.mkdir'), patch('xopr.stac.catalog.build_collection_extent'):
             catalog = build_limited_catalog(
                 data_root=Path('/test'),
                 output_path=Path('/output'),
@@ -254,8 +252,8 @@ class TestBuildLimitedCatalog:
         assert 'sci:doi' in campaign_collection.extra_fields
         assert campaign_collection.extra_fields['sci:doi'] == test_doi
 
-    @patch('build_stac_catalog.discover_campaigns')
-    @patch('build_stac_catalog.discover_flight_lines') 
+    @patch('xopr.stac.catalog.discover_campaigns')
+    @patch('xopr.stac.catalog.discover_flight_lines') 
     def test_none_values_filtered_correctly(self, mock_discover_flights, mock_discover_campaigns):
         """Test that None values are properly filtered in collection logic."""
         # This test specifically validates the `is not None` filtering logic
