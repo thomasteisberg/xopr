@@ -2,19 +2,10 @@ name: Publish
 on:
   push:
     tags:
-      - "*.*.*"
+      - "v*.*.*"
 jobs:
-  test:
-    uses: ./.github/workflows/test.yml
-
-  update-changelog:
-    uses: ./.github/workflows/changelog.yml
-
   build:
     name: Build distribution 📦
-    needs:
-      - test
-      - update-changelog
     runs-on: ubuntu-latest
     strategy:
       matrix:

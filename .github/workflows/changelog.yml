@@ -3,7 +3,7 @@ name: Update Changelog
 on:
   push:
     tags:
-      - "*.*.*"
+      - "0.*.*"
   workflow_dispatch:
     inputs:
       tag:
@@ -12,7 +12,11 @@ on:
         type: string
 
 jobs:
+  test:
+    uses: ./.github/workflows/test.yml
+
   update-changelog:
+    needs: test
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -101,7 +105,7 @@ jobs:
             
             # Filter PRs by date range and format output
             while IFS='|' read -r pr_line merge_date; do
-              if [[ "$merge_date" > "$PREV_TAG_DATE" && "$merge_date" < "$CURRENT_TAG_DATE" ]]; then
+              if [[ "$merge_date" >= "$PREV_TAG_DATE" && "$merge_date" <= "$CURRENT_TAG_DATE" ]]; then
                 echo "$pr_line" >> $NEW_ENTRY_FILE
               fi
             done < $TEMP_PR_FILE
@@ -111,7 +115,7 @@ jobs:
           
           # If no PRs found, fall back to commit messages
           if ! grep -q "^-" $NEW_ENTRY_FILE; then
-            echo "No PRs found in date range, using commit messages instead"
+            echo "No PRs found in commit range, using commit messages instead"
             git log ${PREVIOUS_TAG}..${CURRENT_TAG} --pretty=format:"- %s (%h)" --no-merges >> $NEW_ENTRY_FILE
           fi
           
@@ -172,7 +176,7 @@ jobs:
           rm -f $NEW_ENTRY_FILE
         fi
 
-    - name: Commit changelog update
+    - name: Commit changelog update and create release tag
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       run: |
@@ -180,13 +184,20 @@ jobs:
         git config --local user.email "github-actions[bot]@users.noreply.github.com"
         
         if git diff --quiet CHANGELOG.md; then
-          echo "No changes to CHANGELOG.md"
+          echo "No changes to CHANGELOG.md, but creating release tag anyway"
         else
           git add CHANGELOG.md
           git commit -m "docs: update CHANGELOG.md for ${{ steps.get_tag.outputs.tag }}"
           git push origin HEAD:main
           echo "✅ CHANGELOG.md updated and pushed to main branch"
         fi
+        
+        # Create release tag with 'v' prefix to trigger publish workflow
+        RELEASE_TAG="v${{ steps.get_tag.outputs.tag }}"
+        echo "Creating release tag $RELEASE_TAG"
+        git tag "$RELEASE_TAG" HEAD
+        git push origin "$RELEASE_TAG"
+        echo "✅ Release tag $RELEASE_TAG created and pushed"
 
     - name: Update release notes
       if: github.event_name == 'push'
