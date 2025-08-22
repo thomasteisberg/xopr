@@ -63,9 +63,9 @@ jobs:
         if [ -n "$PREVIOUS_TAG" ]; then
           echo "Getting PRs merged between $PREVIOUS_TAG and $CURRENT_TAG"
           
-          # Get the date of the previous tag for API filtering
-          PREV_TAG_DATE=$(git log -1 --format=%cd --date=iso8601 $PREVIOUS_TAG 2>/dev/null)
-          CURRENT_TAG_DATE=$(git log -1 --format=%cd --date=iso8601 $CURRENT_TAG 2>/dev/null)
+          # Get the date of the previous tag for API filtering (use ISO format without timezone)
+          PREV_TAG_DATE=$(git log -1 --format=%cd --date=iso $PREVIOUS_TAG 2>/dev/null)
+          CURRENT_TAG_DATE=$(git log -1 --format=%cd --date=iso $CURRENT_TAG 2>/dev/null)
           
           echo "Previous tag date: $PREV_TAG_DATE"
           echo "Current tag date: $CURRENT_TAG_DATE"
@@ -74,28 +74,31 @@ jobs:
           if [ -n "$PREV_TAG_DATE" ] && [ -n "$CURRENT_TAG_DATE" ]; then
             echo "Fetching merged PRs from GitHub API..."
             
-            # Use GitHub CLI to get merged PRs in date range
-            gh api graphql -f query='
-              query($owner: String!, $repo: String!) {
-                repository(owner: $owner, name: $repo) {
-                  pullRequests(states: MERGED, first: 100, orderBy: {field: UPDATED_AT, direction: DESC}) {
-                    edges {
-                      node {
-                        number
-                        title
-                        author {
-                          login
+            # Use GitHub CLI with variables to avoid shell parsing issues
+            gh api graphql \
+              -f query='
+                query($owner: String!, $repo: String!, $since: DateTime!, $until: DateTime!) {
+                  repository(owner: $owner, name: $repo) {
+                    pullRequests(states: MERGED, first: 100, orderBy: {field: UPDATED_AT, direction: DESC}) {
+                      edges {
+                        node {
+                          number
+                          title
+                          author {
+                            login
+                          }
+                          url
+                          mergedAt
                         }
-                        url
-                        mergedAt
                       }
                     }
                   }
-                }
-              }' \
+                }' \
               -f owner="${{ github.repository_owner }}" \
               -f repo="${{ github.event.repository.name }}" \
-              --jq '.data.repository.pullRequests.edges[].node | select(.mergedAt >= "'$PREV_TAG_DATE'" and .mergedAt <= "'$CURRENT_TAG_DATE'") | "- " + .title + " ([#" + (.number | tostring) + "](" + .url + ")) by @" + .author.login' >> $NEW_ENTRY_FILE
+              -f since="$PREV_TAG_DATE" \
+              -f until="$CURRENT_TAG_DATE" \
+              --jq '.data.repository.pullRequests.edges[].node | select(.mergedAt >= $since and .mergedAt <= $until) | "- " + .title + " ([#" + (.number | tostring) + "](" + .url + ")) by @" + .author.login' >> $NEW_ENTRY_FILE
           fi
           
           # If no PRs found, fall back to commit messages
