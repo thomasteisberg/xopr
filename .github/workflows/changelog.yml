@@ -74,7 +74,8 @@ jobs:
           if [ -n "$PREV_TAG_DATE" ] && [ -n "$CURRENT_TAG_DATE" ]; then
             echo "Fetching merged PRs from GitHub API..."
             
-            # Use GitHub CLI to get merged PRs in date range
+            # Use GitHub CLI to get merged PRs and filter by date using shell
+            TEMP_PR_FILE=$(mktemp)
             gh api graphql \
               -f query='
                 query($owner: String!, $repo: String!) {
@@ -96,7 +97,16 @@ jobs:
                 }' \
               -f owner="${{ github.repository_owner }}" \
               -f repo="${{ github.event.repository.name }}" \
-              --jq --arg since "$PREV_TAG_DATE" --arg until "$CURRENT_TAG_DATE" '.data.repository.pullRequests.edges[].node | select(.mergedAt >= $since and .mergedAt <= $until) | "- " + .title + " ([#" + (.number | tostring) + "](" + .url + ")) by @" + .author.login' >> $NEW_ENTRY_FILE
+              -q '.data.repository.pullRequests.edges[].node | "- " + .title + " ([#" + (.number | tostring) + "](" + .url + ")) by @" + .author.login + "|" + .mergedAt' > $TEMP_PR_FILE
+            
+            # Filter PRs by date range and format output
+            while IFS='|' read -r pr_line merge_date; do
+              if [[ "$merge_date" > "$PREV_TAG_DATE" && "$merge_date" < "$CURRENT_TAG_DATE" ]]; then
+                echo "$pr_line" >> $NEW_ENTRY_FILE
+              fi
+            done < $TEMP_PR_FILE
+            
+            rm -f $TEMP_PR_FILE
           fi
           
           # If no PRs found, fall back to commit messages
