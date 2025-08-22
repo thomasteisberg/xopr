@@ -74,10 +74,10 @@ jobs:
           if [ -n "$PREV_TAG_DATE" ] && [ -n "$CURRENT_TAG_DATE" ]; then
             echo "Fetching merged PRs from GitHub API..."
             
-            # Use GitHub CLI with variables to avoid shell parsing issues
+            # Use GitHub CLI to get merged PRs in date range
             gh api graphql \
               -f query='
-                query($owner: String!, $repo: String!, $since: DateTime!, $until: DateTime!) {
+                query($owner: String!, $repo: String!) {
                   repository(owner: $owner, name: $repo) {
                     pullRequests(states: MERGED, first: 100, orderBy: {field: UPDATED_AT, direction: DESC}) {
                       edges {
@@ -96,9 +96,7 @@ jobs:
                 }' \
               -f owner="${{ github.repository_owner }}" \
               -f repo="${{ github.event.repository.name }}" \
-              -f since="$PREV_TAG_DATE" \
-              -f until="$CURRENT_TAG_DATE" \
-              --jq '.data.repository.pullRequests.edges[].node | select(.mergedAt >= $since and .mergedAt <= $until) | "- " + .title + " ([#" + (.number | tostring) + "](" + .url + ")) by @" + .author.login' >> $NEW_ENTRY_FILE
+              --jq --arg since "$PREV_TAG_DATE" --arg until "$CURRENT_TAG_DATE" '.data.repository.pullRequests.edges[].node | select(.mergedAt >= $since and .mergedAt <= $until) | "- " + .title + " ([#" + (.number | tostring) + "](" + .url + ")) by @" + .author.login' >> $NEW_ENTRY_FILE
           fi
           
           # If no PRs found, fall back to commit messages
