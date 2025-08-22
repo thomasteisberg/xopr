@@ -2,6 +2,7 @@ import geopandas as gpd
 import json
 from cartopy import crs
 from pyproj import Transformer
+import shapely
 import shapely.ops
 
 def get_antarctic_regions(
@@ -11,7 +12,8 @@ def get_antarctic_regions(
     type=None,
     merge_regions=True,
     measures_boundaries_url = "https://storage.googleapis.com/opr_stac/reference_geometry/measures_boundaries_4326.geojson",
-    merge_in_projection="EPSG:3031"
+    merge_in_projection="EPSG:3031",
+    simplify_tolerance=None
 ):
     """
     Load and filter Antarctic regional boundaries from the MEASURES dataset.
@@ -92,6 +94,22 @@ def get_antarctic_regions(
             print(f"Invalid geometry regions were: {', '.join(invalid_geometries['NAME'])}")
 
         merged = filtered.union_all()
+
+        if simplify_tolerance is None and (merge_in_projection == "EPSG:3031"): # Set a reasonable default based on the size
+            area_km2 = merged.area / 1e6
+            if area_km2 < 10000:
+                simplify_tolerance = 0
+            elif area_km2 < 100000:
+                print(f"Area is {area_km2:.1f} km^2, automatically applying 100m simplification tolerance")
+                print(f"To disable simplification, set simplify_tolerance=0")
+                simplify_tolerance = 100
+            else:
+                print(f"Area is {area_km2:.1f} km^2, automatically applying 1km simplification tolerance")
+                print(f"To disable simplification, set simplify_tolerance=0")
+                simplify_tolerance = 1000
+        
+        if simplify_tolerance and (simplify_tolerance > 0):
+            merged = shapely.buffer(merged, simplify_tolerance).simplify(tolerance=simplify_tolerance)
 
         if merge_in_projection:
             merged = project_geojson(merged, source_crs=merge_in_projection, target_crs="EPSG:4326")
