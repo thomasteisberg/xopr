@@ -187,12 +187,16 @@ jobs:
         git config --local user.name "github-actions[bot]"
         git config --local user.email "github-actions[bot]@users.noreply.github.com"
         
+        # Switch to main branch and pull latest changes
+        git checkout main
+        git pull origin main
+        
         if git diff --quiet CHANGELOG.md; then
           echo "No changes to CHANGELOG.md, but creating release tag anyway"
         else
           git add CHANGELOG.md
           git commit -m "docs: update CHANGELOG.md for ${{ steps.get_tag.outputs.tag }}"
-          git push origin HEAD:main
+          git push origin main
           echo "✅ CHANGELOG.md updated and pushed to main branch"
         fi
         
