@@ -192,12 +192,17 @@ jobs:
           echo "✅ CHANGELOG.md updated and pushed to main branch"
         fi
         
-        # Create release tag with 'v' prefix to trigger publish workflow
+        # Create release tag and trigger publish workflow
         RELEASE_TAG="v${{ steps.get_tag.outputs.tag }}"
         echo "Creating release tag $RELEASE_TAG"
         git tag "$RELEASE_TAG" HEAD
         git push origin "$RELEASE_TAG"
         echo "✅ Release tag $RELEASE_TAG created and pushed"
+        
+        # Trigger publish workflow manually
+        echo "Triggering publish workflow for $RELEASE_TAG"
+        gh workflow run publish.yml -f tag="$RELEASE_TAG"
+        echo "✅ Publish workflow triggered"
 
     - name: Update release notes
       if: github.event_name == 'push'
