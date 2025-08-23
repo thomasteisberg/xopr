@@ -105,7 +105,7 @@ jobs:
             
             # Filter PRs by date range and format output
             while IFS='|' read -r pr_line merge_date; do
-              if [[ -n "$merge_date" && -n "$PREV_TAG_DATE" && -n "$CURRENT_TAG_DATE" ]] && [[ "$merge_date" > "$PREV_TAG_DATE" && "$merge_date" < "$CURRENT_TAG_DATE" ]]; then
+              if [[ -n "$merge_date" && -n "$PREV_TAG_DATE" && -n "$CURRENT_TAG_DATE" ]] && [[ "$merge_date" >= "$PREV_TAG_DATE" && "$merge_date" <= "$CURRENT_TAG_DATE" ]]; then
                 echo "$pr_line" >> $NEW_ENTRY_FILE
               fi
             done < $TEMP_PR_FILE
