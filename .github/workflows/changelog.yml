@@ -21,6 +21,8 @@ jobs:
     permissions:
       contents: write
       pull-requests: read
+    outputs:
+      release_tag: ${{ steps.create_tag.outputs.release_tag }}
 
     steps:
     - name: Checkout code
@@ -181,6 +183,7 @@ jobs:
         fi
 
     - name: Commit changelog update and create release tag
+      id: create_tag
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       run: |
@@ -205,7 +208,10 @@ jobs:
         echo "Creating release tag $RELEASE_TAG"
         git tag "$RELEASE_TAG" HEAD
         git push origin "$RELEASE_TAG"
-        echo "✅ Release tag $RELEASE_TAG created and pushed, which should trigger publish workflow"
+        echo "✅ Release tag $RELEASE_TAG created and pushed"
+        
+        # Output the tag for the next job
+        echo "release_tag=$RELEASE_TAG" >> $GITHUB_OUTPUT
 
     - name: Update release notes
       if: github.event_name == 'push'
@@ -234,3 +240,13 @@ jobs:
         
         # Update the release with the new notes
         gh release edit "$TAG" --notes-file release_notes.md || echo "Release not found or already has notes"
+
+  publish:
+    needs: update-changelog
+    if: needs.update-changelog.outputs.release_tag != ''
+    uses: ./.github/workflows/publish.yml
+    with:
+      tag: ${{ needs.update-changelog.outputs.release_tag }}
+    permissions:
+      contents: write
+      id-token: write
