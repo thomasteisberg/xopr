@@ -67,9 +67,9 @@ jobs:
         if [ -n "$PREVIOUS_TAG" ]; then
           echo "Getting PRs merged between $PREVIOUS_TAG and $CURRENT_TAG"
           
-          # Get the date of the previous tag for API filtering (use ISO format without timezone)
-          PREV_TAG_DATE=$(git log -1 --format=%cd --date=iso $PREVIOUS_TAG 2>/dev/null)
-          CURRENT_TAG_DATE=$(git log -1 --format=%cd --date=iso $CURRENT_TAG 2>/dev/null)
+          # Get the date of the previous tag for API filtering (use unix timestamp for easier comparison)
+          PREV_TAG_DATE=$(git log -1 --format=%ct $PREVIOUS_TAG 2>/dev/null)
+          CURRENT_TAG_DATE=$(git log -1 --format=%ct $CURRENT_TAG 2>/dev/null)
           
           echo "Previous tag date: $PREV_TAG_DATE"
           echo "Current tag date: $CURRENT_TAG_DATE"
@@ -103,10 +103,14 @@ jobs:
               -f repo="${{ github.event.repository.name }}" \
               -q '.data.repository.pullRequests.edges[].node | "- " + .title + " ([#" + (.number | tostring) + "](" + .url + ")) by @" + .author.login + "|" + .mergedAt' > $TEMP_PR_FILE
             
-            # Filter PRs by date range and format output
+            # Filter PRs by date range and format output  
             while IFS='|' read -r pr_line merge_date; do
-              if [[ -n "$merge_date" && -n "$PREV_TAG_DATE" && -n "$CURRENT_TAG_DATE" ]] && [[ "$merge_date" >= "$PREV_TAG_DATE" && "$merge_date" <= "$CURRENT_TAG_DATE" ]]; then
-                echo "$pr_line" >> $NEW_ENTRY_FILE
+              if [[ -n "$merge_date" && -n "$PREV_TAG_DATE" && -n "$CURRENT_TAG_DATE" ]]; then
+                # Convert GitHub API date to unix timestamp for comparison
+                merge_timestamp=$(date -d "$merge_date" +%s 2>/dev/null || echo "0")
+                if [[ "$merge_timestamp" -ge "$PREV_TAG_DATE" && "$merge_timestamp" -le "$CURRENT_TAG_DATE" ]]; then
+                  echo "$pr_line" >> $NEW_ENTRY_FILE
+                fi
               fi
             done < $TEMP_PR_FILE
             
