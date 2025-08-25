@@ -758,8 +758,8 @@ def main():
     parser.add_argument(
         "--campaigns",
         nargs="*",
-        help="Specific campaigns to process (default: all campaigns)",
-        default=['2016_Antarctica_DC8', '2017_Antarctica_P3', '2017_Antarctica_Basler', '2018_Antarctica_DC8', '2019_Antarctica_GV', '2022_Antarctica_BaslerMKB', '2023_Antarctica_BaslerMKB']
+        help="Specific campaigns to process (space-separated names or path to text file with one campaign per line). If not specified, processes all campaigns.",
+        default=None
     )
     parser.add_argument(
         "--output-dir",
@@ -844,6 +844,25 @@ def main():
     )
 
     args = parser.parse_args()
+    
+    # Process campaigns argument - handle both file paths and campaign names
+    campaign_filter = None
+    if args.campaigns:
+        # If only one argument and it's a file path, read campaigns from file
+        if len(args.campaigns) == 1 and Path(args.campaigns[0]).is_file():
+            campaigns_file = Path(args.campaigns[0])
+            print(f"📁 Reading campaigns from file: {campaigns_file}")
+            try:
+                with open(campaigns_file, 'r') as f:
+                    campaign_filter = [line.strip() for line in f if line.strip() and not line.strip().startswith('#')]
+                print(f"   Found {len(campaign_filter)} campaigns in file")
+            except Exception as e:
+                print(f"Error reading campaigns file {campaigns_file}: {e}")
+                sys.exit(1)
+        else:
+            # Treat as campaign names
+            campaign_filter = args.campaigns
+            print(f"📋 Processing specified campaigns: {campaign_filter}")
 
     # Validate inputs
     if not args.data_root.exists():
@@ -881,7 +900,7 @@ def main():
                     data_product=args.data_product,
                     base_url=args.base_url,
                     max_items=args.max_items,
-                    campaign_filter=args.campaigns,
+                    campaign_filter=campaign_filter,
                     verbose=args.verbose,
                     parallel_flights=(args.parallel or args.parallel_flights),
                     parallel_campaigns=(args.parallel or args.parallel_campaigns)
@@ -895,7 +914,7 @@ def main():
                     data_product=args.data_product,
                     base_url=args.base_url,
                     max_items=args.max_items,
-                    campaign_filter=args.campaigns,
+                    campaign_filter=campaign_filter,
                     verbose=args.verbose
                 )
         finally:
