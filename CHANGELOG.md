@@ -7,13 +7,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [0.1.6] - 2025-08-25
-
-- Geometry fixes and unit tests for geometry, opr_access ([#3](https://github.com/thomasteisberg/xopr/pull/3)) by @thomasteisberg
-- STAC logic updates and unit tests ([#4](https://github.com/thomasteisberg/xopr/pull/4)) by @espg
-- Load full attributes from data product files ([#2](https://github.com/thomasteisberg/xopr/pull/2)) by @thomasteisberg
-
-
 ## [0.1.0] - (1979-01-01)
 
 - First release

@@ -43,10 +43,6 @@ jobs:
       - build
     runs-on: ubuntu-latest
 
-    environment:
-      name: testpypi
-      url: https://test.pypi.org/p/xopr
-
     permissions:
       id-token: write
 
@@ -68,10 +64,6 @@ jobs:
     needs:
       - publish-to-testpypi
     runs-on: ubuntu-latest
-    
-    environment:
-      name: pypi
-      url: https://pypi.org/p/xopr
       
     permissions:
       id-token: write
