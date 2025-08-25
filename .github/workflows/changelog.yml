@@ -147,8 +147,6 @@ jobs:
             /^## \[Unreleased\]/ {
               print $0
               print ""
-              print "- Upcoming features and fixes"
-              print ""
               while ((getline line < "'"$NEW_ENTRY_FILE"'") > 0) {
                 print line
               }
