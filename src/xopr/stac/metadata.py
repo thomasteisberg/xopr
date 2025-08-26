@@ -93,8 +93,11 @@ def extract_item_metadata(mat_file_path: Union[str, Path] = None,
     geom_series = gpd.GeoSeries(map(Point, zip(ds['Longitude'].values,
                                                ds['Latitude'].values)))
     line = LineString(geom_series.tolist())
-    # this is lazy -- proper implementation would convert the coordinates to polar stereographic first
-    line = line.simplify(0.0001)
+    
+    # Import and use unified polar projection simplification
+    from .catalog import simplify_geometry_polar_projection
+    line = simplify_geometry_polar_projection(line, simplify_tolerance=100.0)
+    
     bounds = shapely.bounds(line)
     boundingbox = box(bounds[0], bounds[1], bounds[2], bounds[3])
 
