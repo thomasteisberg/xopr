@@ -365,7 +365,15 @@ def setup_dask_client(args) -> Optional[Client]:
         print(f"🚀 Starting local Dask cluster with {n_workers} workers")
         client = Client(processes=True, n_workers=n_workers, threads_per_worker=2)
     
+    # Verify workers are actually running
+    worker_info = client.scheduler_info()
+    actual_workers = len(worker_info.get('workers', {}))
     print(f"   Dashboard: {client.dashboard_link}")
+    print(f"   Workers running: {actual_workers}")
+    
+    if actual_workers == 0:
+        print("   ⚠️  WARNING: No workers detected! Parallel processing will not work.")
+    
     return client
 
 
@@ -485,16 +493,15 @@ def process_single_flight_delayed(
         return None
 
 
-@delayed
-def process_campaign_delayed(
+def process_campaign(
     campaign, data_root, data_product, extra_data_products, base_url, 
     max_items, verbose, parallel_flights=False
 ):
     """
     Process a single campaign and return campaign collection data.
     
-    This is a delayed function that processes one campaign's data into a 
-    campaign collection with all its flight collections.
+    This function processes one campaign's data into a campaign collection 
+    with all its flight collections.
     """
     from xopr.stac.catalog import (
         build_collection_extent, create_collection, merge_flight_geometries,
@@ -504,7 +511,15 @@ def process_campaign_delayed(
     campaign_path = Path(campaign['path'])
     campaign_name = campaign['name']
     
-    print(f"Processing campaign: {campaign_name}")
+    # Get worker info if running in parallel
+    try:
+        from dask.distributed import get_worker
+        worker = get_worker()
+        worker_id = worker.address.split(":")[-1]  # Get port number as simple ID
+        print(f"🔧 Worker {worker_id} processing campaign: {campaign_name}")
+    except (ImportError, ValueError):
+        # Not running on a Dask worker (sequential mode)
+        print(f"Processing campaign: {campaign_name}")
     
     try:
         flight_lines = discover_flight_lines(
@@ -524,7 +539,7 @@ def process_campaign_delayed(
         flight_lines = flight_lines[:max_items]
     
     if parallel_flights:
-        # Process flights in parallel
+        # Process flights in parallel within this campaign
         print(f"  Processing {len(flight_lines)} flights in parallel...")
         
         flight_futures = []
@@ -636,13 +651,28 @@ def process_campaign_delayed(
     for flight_collection in flight_collections:
         campaign_collection.add_child(flight_collection)
     
-    print(
-        f"Added campaign collection {campaign_name} with "
-        f"{len(flight_collections)} flight collections and "
-        f"{len(all_campaign_items)} total items"
-    )
+    # Show completion with worker info if parallel
+    try:
+        from dask.distributed import get_worker
+        worker = get_worker()
+        worker_id = worker.address.split(":")[-1]
+        print(
+            f"🔧 Worker {worker_id} completed campaign {campaign_name} with "
+            f"{len(flight_collections)} flight collections and "
+            f"{len(all_campaign_items)} total items"
+        )
+    except (ImportError, ValueError):
+        print(
+            f"Added campaign collection {campaign_name} with "
+            f"{len(flight_collections)} flight collections and "
+            f"{len(all_campaign_items)} total items"
+        )
     
     return campaign_collection
+
+
+# Create a delayed version for backward compatibility
+process_campaign_delayed = delayed(process_campaign)
 
 
 def build_parallel_catalog(
@@ -656,7 +686,8 @@ def build_parallel_catalog(
     campaign_filter: List[str] = None,
     verbose: bool = False,
     parallel_flights: bool = False,
-    parallel_campaigns: bool = False
+    parallel_campaigns: bool = False,
+    client: Optional[Client] = None
 ) -> pystac.Catalog:
     """
     Build STAC catalog with parallel processing using Dask.
@@ -699,20 +730,43 @@ def build_parallel_catalog(
         campaigns = [c for c in campaigns if c['name'] in campaign_filter]
     
     if parallel_campaigns:
-        print(f"🔄 Processing {len(campaigns)} campaigns in parallel...")
+        print(f"🚀 Processing {len(campaigns)} campaigns in parallel on Dask workers...")
         
-        # Process campaigns in parallel
-        campaign_futures = []
+        # Process campaigns in parallel using Dask distributed
+        from dask.distributed import as_completed
+        
+        if client is None:
+            raise ValueError("Dask client is required for parallel campaign processing but was not provided")
+        
+        # Submit campaign processing tasks directly to workers
+        print(f"📤 Submitting {len(campaigns)} campaign tasks to {len(client.scheduler_info()['workers'])} workers...")
+        futures = []
         for campaign in campaigns:
-            future = process_campaign_delayed(
+            # Use client.submit() for true parallel execution on workers
+            future = client.submit(
+                process_campaign,  # Use non-delayed function
                 campaign, data_root, data_product, extra_data_products, 
-                base_url, max_items, verbose, parallel_flights
+                base_url, max_items, verbose, 
+                parallel_flights=False  # Disable nested parallelism
             )
-            campaign_futures.append(future)
+            futures.append(future)
+            print(f"   → Queued: {campaign['name']}")
         
-        # Compute all campaign futures
-        print("Computing campaign processing results...")
-        campaign_collections = dask.compute(*campaign_futures)
+        print(f"⏳ Campaigns processing in parallel on workers...")
+        print(f"   (Output may appear interleaved as workers process different campaigns simultaneously)")
+        print()
+        
+        # Collect results as they complete
+        campaign_collections = []
+        completed_count = 0
+        for future in as_completed(futures):
+            result = future.result()
+            campaign_collections.append(result)
+            completed_count += 1
+            if result:
+                print(f"\n✅ Campaign completed ({completed_count}/{len(campaigns)}): {result.id}")
+            else:
+                print(f"\n⚠️  Campaign processing returned None ({completed_count}/{len(campaigns)})")
         
     else:
         # Process campaigns sequentially
@@ -921,7 +975,8 @@ def main():
                     campaign_filter=campaign_filter,
                     verbose=args.verbose,
                     parallel_flights=(args.parallel or args.parallel_flights),
-                    parallel_campaigns=(args.parallel or args.parallel_campaigns)
+                    parallel_campaigns=(args.parallel or args.parallel_campaigns),
+                    client=client  # Pass the client for parallel processing
                 )
             else:
                 # Use original sequential processing (hierarchical structure)
