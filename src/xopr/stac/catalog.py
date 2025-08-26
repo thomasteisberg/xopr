@@ -9,7 +9,7 @@ from typing import List, Optional, Dict, Any, Union
 import numpy as np
 import pystac
 import shapely
-from shapely.geometry import mapping
+from shapely.geometry import mapping, LineString
 import pyproj
 from shapely.ops import transform
 
@@ -304,51 +304,28 @@ def create_items_from_flight_data(
     return items
 
 
-def merge_item_geometries(items: List[pystac.Item], simplify_tolerance: float = 100.0) -> Optional[Dict[str, Any]]:
+def simplify_geometry_polar_projection(geometry: shapely.geometry.base.BaseGeometry, 
+                                      simplify_tolerance: float = 100.0) -> shapely.geometry.base.BaseGeometry:
     """
-    Merge geometries from multiple STAC items into a single simplified geometry.
-    
-    For polar data, geometries are projected to appropriate polar stereographic
-    projections before merging and simplification to handle longitude wrap-around
-    issues near the poles.
+    Simplify geometry using appropriate polar stereographic projection.
     
     Parameters
     ----------
-    items : list of pystac.Item
-        List of STAC items to merge geometries from.
+    geometry : shapely.geometry.base.BaseGeometry
+        Input geometry in WGS84 coordinates
     simplify_tolerance : float, default 100.0
-        Tolerance for shapely.simplify() in meters (used in polar projection).
+        Tolerance for shapely.simplify() in meters (used in polar projection)
         
     Returns
     -------
-    dict or None
-        GeoJSON geometry object representing the simplified union of all item geometries,
-        or None if no valid geometries found.
+    shapely.geometry.base.BaseGeometry
+        Simplified geometry in WGS84 coordinates
     """
-    if not items:
-        return None
+    if not geometry or not geometry.is_valid:
+        return geometry
     
-    geometries = []
-    for item in items:
-        if item.geometry:
-            try:
-                geom = shapely.geometry.shape(item.geometry)
-                if geom.is_valid:
-                    geometries.append(geom)
-            except Exception:
-                continue
-    
-    if not geometries:
-        return None
-    
-    # Union all geometries in lat/lon first
-    union_geom = geometries[0]
-    for geom in geometries[1:]:
-        union_geom = union_geom.union(geom)
-    
-    # Determine appropriate polar projection based on latitude
-    # Get centroid to determine hemisphere
-    centroid = union_geom.centroid
+    # Determine appropriate polar projection based on geometry centroid
+    centroid = geometry.centroid
     lat = centroid.y
     
     if lat < 0:
@@ -367,16 +344,109 @@ def merge_item_geometries(items: List[pystac.Item], simplify_tolerance: float = 
     transformer_to_wgs84 = pyproj.Transformer.from_crs(polar_proj, wgs84, always_xy=True)
     
     # Project to polar coordinates
-    projected_geom = transform(transformer_to_polar.transform, union_geom)
+    projected_geom = transform(transformer_to_polar.transform, geometry)
     
     # Simplify in projected coordinates (tolerance in meters)
     simplified_geom = projected_geom.simplify(simplify_tolerance, preserve_topology=True)
     
     # Transform back to WGS84
-    final_geom = transform(transformer_to_wgs84.transform, simplified_geom)
+    return transform(transformer_to_wgs84.transform, simplified_geom)
+
+
+def merge_item_geometries(items: List[pystac.Item], simplify_tolerance: float = 100.0) -> Optional[Dict[str, Any]]:
+    """
+    Merge geometries from multiple STAC items into a single simplified geometry.
+    
+    For flight data with segments, creates a connected LineString by concatenating
+    coordinates in segment order. For other data, performs geometric union.
+    Geometries are projected to appropriate polar stereographic projections 
+    before merging and simplification to handle longitude wrap-around issues near the poles.
+    
+    Parameters
+    ----------
+    items : list of pystac.Item
+        List of STAC items to merge geometries from.
+    simplify_tolerance : float, default 100.0
+        Tolerance for shapely.simplify() in meters (used in polar projection).
+        
+    Returns
+    -------
+    dict or None
+        GeoJSON geometry object representing the simplified connected LineString (for flight data)
+        or union geometry (for other data), or None if no valid geometries found.
+    """
+    if not items:
+        return None
+    
+    # Check if all items have segment information for flight data
+    has_segments = all(
+        item.properties and item.properties.get('opr:segment') is not None 
+        for item in items
+    )
+    
+    if has_segments:
+        # Flight data: sort by segment and concatenate coordinates
+        items_with_geoms = []
+        for item in items:
+            if item.geometry:
+                try:
+                    geom = shapely.geometry.shape(item.geometry)
+                    if geom.is_valid and geom.geom_type == 'LineString':
+                        segment_num = item.properties.get('opr:segment')
+                        items_with_geoms.append((segment_num, geom, item))
+                except Exception:
+                    continue
+        
+        if not items_with_geoms:
+            return None
+        
+        # Sort by segment number
+        items_with_geoms.sort(key=lambda x: x[0])
+        
+        # Concatenate coordinates from all LineStrings in order
+        all_coords = []
+        for segment_num, geom, item in items_with_geoms:
+            coords = list(geom.coords)
+            if all_coords and coords:
+                # Skip first coordinate if it's the same as the last coordinate
+                # (to avoid duplicate points at segment boundaries)
+                if all_coords[-1] == coords[0]:
+                    coords = coords[1:]
+            all_coords.extend(coords)
+        
+        if len(all_coords) < 2:
+            return None
+        
+        # Create connected LineString
+        connected_linestring = LineString(all_coords)
+        
+    else:
+        # Non-flight data: use geometric union approach
+        geometries = []
+        for item in items:
+            if item.geometry:
+                try:
+                    geom = shapely.geometry.shape(item.geometry)
+                    if geom.is_valid:
+                        geometries.append(geom)
+                except Exception:
+                    continue
+        
+        if not geometries:
+            return None
+        
+        # Union all geometries in lat/lon first
+        union_geom = geometries[0]
+        for geom in geometries[1:]:
+            union_geom = union_geom.union(geom)
+        
+        connected_linestring = union_geom
+    
+    # Simplify using unified polar projection function
+    simplified_geom = simplify_geometry_polar_projection(connected_linestring, simplify_tolerance)
     
     # Convert back to GeoJSON
-    return mapping(final_geom)
+    return mapping(simplified_geom)
 
 
 def merge_flight_geometries(flight_geometries: List[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
@@ -816,4 +886,193 @@ def build_limited_catalog(
     )
 
     print(f"Catalog saved to {output_path}")
+    return catalog
+
+
+def build_flat_catalog(
+    data_root: Path,
+    output_path: Path,
+    catalog_id: str = "OPR",
+    data_product: str = "CSARP_standard",
+    extra_data_products: list[str] = ['CSARP_layer'],
+    base_url: str = "https://data.cresis.ku.edu/data/rds/",
+    max_items: int = None,
+    campaign_filter: list = None,
+    verbose: bool = False
+) -> pystac.Catalog:
+    """
+    Build flattened STAC catalog for parquet export: catalog -> campaigns -> items.
+    
+    This creates a simplified structure without flight collections, suitable for
+    parquet export to STAC servers. Campaign collections have bbox-only extent
+    with no geometry fields, but items keep full LineString geometry.
+
+    Parameters
+    ----------
+    data_root : Path
+        Root directory containing campaign data
+    output_path : Path
+        Directory where catalog will be saved
+    catalog_id : str, optional
+        Catalog ID, by default "OPR"
+    data_product : str, optional
+        Primary data product to process, by default "CSARP_standard"
+    extra_data_products : List[str], optional
+        Additional data products to include, by default ['CSARP_layer']
+    base_url : str, optional
+        Base URL for asset hrefs, by default "https://data.cresis.ku.edu/data/rds/"
+    max_items : int, optional
+        Maximum number of items to process, by default None (all items)
+    campaign_filter : List[str], optional
+        Specific campaigns to process, by default None (all campaigns)
+    verbose : bool, optional
+        If True, print details for each item being processed, by default False
+
+    Returns
+    -------
+    pystac.Catalog
+        The built flattened STAC catalog
+    """
+    catalog = create_catalog(catalog_id=catalog_id)
+    campaigns = discover_campaigns(data_root)
+
+    # Filter campaigns if specified
+    if campaign_filter:
+        campaigns = [c for c in campaigns if c['name'] in campaign_filter]
+
+    for campaign in campaigns:
+        campaign_path = Path(campaign['path'])
+        campaign_name = campaign['name']
+
+        print(f"Processing campaign: {campaign_name}")
+
+        try:
+            flight_lines = discover_flight_lines(
+                campaign_path, data_product,
+                extra_data_products=extra_data_products
+            )
+        except FileNotFoundError as e:
+            print(f"Warning: Skipping {campaign_name}: {e}")
+            continue
+
+        if not flight_lines:
+            print(f"Warning: No flight lines found for {campaign_name}")
+            continue
+
+        # Limit the number of flight lines processed if specified
+        if max_items is not None:
+            flight_lines = flight_lines[:max_items]
+
+        # Collect ALL items across all flights for this campaign
+        all_campaign_items = []
+
+        for flight_data in flight_lines:
+            try:
+                items = create_items_from_flight_data(
+                    flight_data, base_url, campaign_name, data_product, verbose
+                )
+                all_campaign_items.extend(items)
+
+                flight_id = flight_data['flight_id']
+                print(f"  Added {len(items)} items from flight {flight_id}")
+
+                # Break early if we've hit the max items limit
+                if (max_items is not None and
+                        len(all_campaign_items) >= max_items):
+                    break
+
+            except Exception as e:
+                flight_id = flight_data['flight_id']
+                print(f"Warning: Failed to process flight {flight_id}: {e}")
+                continue
+
+        if all_campaign_items:
+            # Create campaign collection with bbox-only extent (no geometry)
+            campaign_extent = build_collection_extent(all_campaign_items)
+            
+            # Collect scientific metadata from all campaign items
+            campaign_dois = [
+                item.properties.get('sci:doi') for item in all_campaign_items
+                if item.properties.get('sci:doi') is not None
+            ]
+            campaign_citations = [
+                item.properties.get('sci:citation')
+                for item in all_campaign_items
+                if item.properties.get('sci:citation') is not None
+            ]
+
+            # Check for unique values and prepare extensions (NO projection extension)
+            campaign_extensions = []
+            campaign_extra_fields = {}
+
+            if campaign_dois and len(np.unique(campaign_dois)) == 1:
+                campaign_extensions.append(SCI_EXT)
+                campaign_extra_fields['sci:doi'] = campaign_dois[0]
+
+            if campaign_citations and len(np.unique(campaign_citations)) == 1:
+                if SCI_EXT not in campaign_extensions:
+                    campaign_extensions.append(SCI_EXT)
+                campaign_extra_fields['sci:citation'] = campaign_citations[0]
+
+            # Collect SAR metadata from all campaign items
+            campaign_center_frequencies = [
+                item.properties.get('sar:center_frequency')
+                for item in all_campaign_items
+                if item.properties.get('sar:center_frequency') is not None
+            ]
+            campaign_bandwidths = [
+                item.properties.get('sar:bandwidth')
+                for item in all_campaign_items
+                if item.properties.get('sar:bandwidth') is not None
+            ]
+
+            if (campaign_center_frequencies and
+                    len(np.unique(campaign_center_frequencies)) == 1):
+                campaign_extensions.append(SAR_EXT)
+                campaign_extra_fields['sar:center_frequency'] = (
+                    campaign_center_frequencies[0]
+                )
+
+            if (campaign_bandwidths and
+                    len(np.unique(campaign_bandwidths)) == 1):
+                if SAR_EXT not in campaign_extensions:
+                    campaign_extensions.append(SAR_EXT)
+                campaign_extra_fields['sar:bandwidth'] = (
+                    campaign_bandwidths[0]
+                )
+
+            # Create campaign collection with NO geometry field at all
+            campaign_collection = create_collection(
+                collection_id=campaign_name,
+                description=(
+                    f"{campaign['year']} {campaign['aircraft']} flights "
+                    f"over {campaign['location']}"
+                ),
+                extent=campaign_extent,
+                stac_extensions=(
+                    campaign_extensions if campaign_extensions else None
+                )
+                # Note: no geometry parameter - bbox-only for parquet compatibility
+            )
+
+            # Add scientific extra fields to campaign collection
+            for key, value in campaign_extra_fields.items():
+                campaign_collection.extra_fields[key] = value
+
+            # Add ALL items directly to campaign collection (flattened structure)
+            campaign_collection.add_items(all_campaign_items)
+            catalog.add_child(campaign_collection)
+
+            print(
+                f"Added flattened campaign collection {campaign_name} with "
+                f"{len(all_campaign_items)} total items (no flight collections)"
+            )
+
+    output_path.mkdir(parents=True, exist_ok=True)
+    catalog.normalize_and_save(
+        root_href=str(output_path),
+        catalog_type=pystac.CatalogType.SELF_CONTAINED
+    )
+
+    print(f"Flattened catalog saved to {output_path}")
     return catalog

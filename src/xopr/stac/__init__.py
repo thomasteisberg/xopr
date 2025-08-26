@@ -9,7 +9,7 @@ across radar campaigns and data products.
 from .catalog import (
     create_catalog, create_collection, create_item,
     build_collection_extent, create_items_from_flight_data,
-    build_limited_catalog
+    build_limited_catalog, build_flat_catalog
 )
 from .metadata import extract_item_metadata, discover_campaigns, discover_flight_lines
 
@@ -20,6 +20,7 @@ __all__ = [
     "build_collection_extent",
     "create_items_from_flight_data",
     "build_limited_catalog",
+    "build_flat_catalog",
     "extract_item_metadata",
     "discover_campaigns",
     "discover_flight_lines"
