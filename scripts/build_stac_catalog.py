@@ -21,7 +21,8 @@ from dask import delayed
 from xopr.stac import (
     create_catalog, create_collection,
     build_collection_extent, create_items_from_flight_data,
-    discover_campaigns, discover_flight_lines, build_limited_catalog
+    discover_campaigns, discover_flight_lines, build_limited_catalog,
+    build_flat_catalog
 )
 
 # STAC extension URLs
@@ -842,6 +843,11 @@ def main():
         default=None,
         help="Address of existing Dask scheduler (e.g., 'tcp://scheduler:8786')"
     )
+    parser.add_argument(
+        "--flat-parquet",
+        action="store_true",
+        help="Use flattened catalog structure for parquet export (catalog -> campaigns -> items, no flight collections). Campaign collections have bbox-only geometry."
+    )
 
     args = parser.parse_args()
     
@@ -891,8 +897,20 @@ def main():
         client = setup_dask_client(args)
         
         try:
-            if parallel_enabled:
-                # Use parallel catalog building
+            if args.flat_parquet:
+                # Use flattened catalog structure (catalog -> campaigns -> items)
+                catalog = build_flat_catalog(
+                    data_root=args.data_root,
+                    output_path=args.output_dir,
+                    catalog_id=args.catalog_id,
+                    data_product=args.data_product,
+                    base_url=args.base_url,
+                    max_items=args.max_items,
+                    campaign_filter=campaign_filter,
+                    verbose=args.verbose
+                )
+            elif parallel_enabled:
+                # Use parallel catalog building (hierarchical structure)
                 catalog = build_parallel_catalog(
                     data_root=args.data_root,
                     output_path=args.output_dir,
@@ -906,7 +924,7 @@ def main():
                     parallel_campaigns=(args.parallel or args.parallel_campaigns)
                 )
             else:
-                # Use original sequential processing
+                # Use original sequential processing (hierarchical structure)
                 catalog = build_limited_catalog(
                     data_root=args.data_root,
                     output_path=args.output_dir,
