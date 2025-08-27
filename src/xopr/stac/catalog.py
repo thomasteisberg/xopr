@@ -10,7 +10,7 @@ import numpy as np
 import pystac
 from dask.distributed import LocalCluster, Client
 
-from .metadata import extract_item_metadata, discover_campaigns, discover_flight_lines
+from .metadata import extract_item_metadata, discover_campaigns, discover_flight_lines, collect_uniform_metadata
 from .geometry import (
     simplify_geometry_polar_projection,
     merge_item_geometries,
@@ -405,52 +405,11 @@ def build_limited_catalog(
                 flight_id = flight_data['flight_id']
                 flight_extent, flight_geometry = build_collection_extent_and_geometry(items)
 
-                # Collect scientific metadata from items for flight collection
-                dois = [
-                    item.properties.get('sci:doi') for item in items
-                    if item.properties.get('sci:doi') is not None
-                ]
-                citations = [
-                    item.properties.get('sci:citation') for item in items
-                    if item.properties.get('sci:citation') is not None
-                ]
-
-                # Check for unique values and prepare extensions
-                flight_extensions = []
-                flight_extra_fields = {}
-
-                if dois and len(np.unique(dois)) == 1:
-                    flight_extensions.append(SCI_EXT)
-                    flight_extra_fields['sci:doi'] = dois[0]
-
-                if citations and len(np.unique(citations)) == 1:
-                    if SCI_EXT not in flight_extensions:
-                        flight_extensions.append(SCI_EXT)
-                    flight_extra_fields['sci:citation'] = citations[0]
-
-                # Collect SAR metadata from items for flight collection
-                center_frequencies = [
-                    item.properties.get('sar:center_frequency')
-                    for item in items
-                    if item.properties.get('sar:center_frequency') is not None
-                ]
-                bandwidths = [
-                    item.properties.get('sar:bandwidth')
-                    for item in items
-                    if item.properties.get('sar:bandwidth') is not None
-                ]
-
-                if (center_frequencies and
-                        len(np.unique(center_frequencies)) == 1):
-                    flight_extensions.append(SAR_EXT)
-                    flight_extra_fields['sar:center_frequency'] = (
-                        center_frequencies[0]
-                    )
-
-                if bandwidths and len(np.unique(bandwidths)) == 1:
-                    if SAR_EXT not in flight_extensions:
-                        flight_extensions.append(SAR_EXT)
-                    flight_extra_fields['sar:bandwidth'] = bandwidths[0]
+                # Collect metadata from items for flight collection
+                flight_extensions, flight_extra_fields = collect_uniform_metadata(
+                    items,
+                    ['sci:doi', 'sci:citation', 'sar:center_frequency', 'sar:bandwidth']
+                )
 
                 flight_collection = create_collection(
                     collection_id=flight_id,
@@ -500,56 +459,11 @@ def build_limited_catalog(
             # Merge flight geometries into campaign-level MultiLineString
             campaign_geometry = merge_flight_geometries(flight_geometries)
 
-            # Collect scientific metadata from all campaign items
-            campaign_dois = [
-                item.properties.get('sci:doi') for item in all_campaign_items
-                if item.properties.get('sci:doi') is not None
-            ]
-            campaign_citations = [
-                item.properties.get('sci:citation')
-                for item in all_campaign_items
-                if item.properties.get('sci:citation') is not None
-            ]
-
-            # Check for unique values and prepare extensions
-            campaign_extensions = []
-            campaign_extra_fields = {}
-
-            if campaign_dois and len(np.unique(campaign_dois)) == 1:
-                campaign_extensions.append(SCI_EXT)
-                campaign_extra_fields['sci:doi'] = campaign_dois[0]
-
-            if campaign_citations and len(np.unique(campaign_citations)) == 1:
-                if SCI_EXT not in campaign_extensions:
-                    campaign_extensions.append(SCI_EXT)
-                campaign_extra_fields['sci:citation'] = campaign_citations[0]
-
-            # Collect SAR metadata from all campaign items
-            campaign_center_frequencies = [
-                item.properties.get('sar:center_frequency')
-                for item in all_campaign_items
-                if item.properties.get('sar:center_frequency') is not None
-            ]
-            campaign_bandwidths = [
-                item.properties.get('sar:bandwidth')
-                for item in all_campaign_items
-                if item.properties.get('sar:bandwidth') is not None
-            ]
-
-            if (campaign_center_frequencies and
-                    len(np.unique(campaign_center_frequencies)) == 1):
-                campaign_extensions.append(SAR_EXT)
-                campaign_extra_fields['sar:center_frequency'] = (
-                    campaign_center_frequencies[0]
-                )
-
-            if (campaign_bandwidths and
-                    len(np.unique(campaign_bandwidths)) == 1):
-                if SAR_EXT not in campaign_extensions:
-                    campaign_extensions.append(SAR_EXT)
-                campaign_extra_fields['sar:bandwidth'] = (
-                    campaign_bandwidths[0]
-                )
+            # Collect metadata from all campaign items
+            campaign_extensions, campaign_extra_fields = collect_uniform_metadata(
+                all_campaign_items,
+                ['sci:doi', 'sci:citation', 'sar:center_frequency', 'sar:bandwidth']
+            )
 
             campaign_collection = create_collection(
                 collection_id=campaign_name,
@@ -697,56 +611,11 @@ def build_flat_collection(
     # Create campaign collection with bbox-only extent (no geometry)
     campaign_extent = build_collection_extent(all_campaign_items)
     
-    # Collect scientific metadata from all campaign items
-    campaign_dois = [
-        item.properties.get('sci:doi') for item in all_campaign_items
-        if item.properties.get('sci:doi') is not None
-    ]
-    campaign_citations = [
-        item.properties.get('sci:citation')
-        for item in all_campaign_items
-        if item.properties.get('sci:citation') is not None
-    ]
-
-    # Check for unique values and prepare extensions (NO projection extension)
-    campaign_extensions = []
-    campaign_extra_fields = {}
-
-    if campaign_dois and len(np.unique(campaign_dois)) == 1:
-        campaign_extensions.append(SCI_EXT)
-        campaign_extra_fields['sci:doi'] = campaign_dois[0]
-
-    if campaign_citations and len(np.unique(campaign_citations)) == 1:
-        if SCI_EXT not in campaign_extensions:
-            campaign_extensions.append(SCI_EXT)
-        campaign_extra_fields['sci:citation'] = campaign_citations[0]
-
-    # Collect SAR metadata from all campaign items
-    campaign_center_frequencies = [
-        item.properties.get('sar:center_frequency')
-        for item in all_campaign_items
-        if item.properties.get('sar:center_frequency') is not None
-    ]
-    campaign_bandwidths = [
-        item.properties.get('sar:bandwidth')
-        for item in all_campaign_items
-        if item.properties.get('sar:bandwidth') is not None
-    ]
-
-    if (campaign_center_frequencies and
-            len(np.unique(campaign_center_frequencies)) == 1):
-        campaign_extensions.append(SAR_EXT)
-        campaign_extra_fields['sar:center_frequency'] = (
-            campaign_center_frequencies[0]
-        )
-
-    if (campaign_bandwidths and
-            len(np.unique(campaign_bandwidths)) == 1):
-        if SAR_EXT not in campaign_extensions:
-            campaign_extensions.append(SAR_EXT)
-        campaign_extra_fields['sar:bandwidth'] = (
-            campaign_bandwidths[0]
-        )
+    # Collect metadata from all campaign items
+    campaign_extensions, campaign_extra_fields = collect_uniform_metadata(
+        all_campaign_items,
+        ['sci:doi', 'sci:citation', 'sar:center_frequency', 'sar:bandwidth']
+    )
 
     # Create campaign collection with NO geometry field at all
     campaign_collection = create_collection(

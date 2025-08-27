@@ -17,7 +17,7 @@ from .geometry import (
     build_collection_extent, build_collection_extent_and_geometry,
     merge_item_geometries, merge_flight_geometries
 )
-from .metadata import extract_item_metadata, discover_campaigns, discover_flight_lines
+from .metadata import extract_item_metadata, discover_campaigns, discover_flight_lines, collect_uniform_metadata
 from .build import (
     process_single_flight, process_single_campaign,
     collect_metadata_from_items, build_hierarchical_catalog,
@@ -42,6 +42,7 @@ __all__ = [
     "extract_item_metadata",
     "discover_campaigns",
     "discover_flight_lines",
+    "collect_uniform_metadata",
     # Build functions
     "process_single_flight",
     "process_single_campaign",

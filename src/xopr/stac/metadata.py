@@ -307,3 +307,65 @@ def discover_flight_lines(campaign_path: Union[str, Path],
                     })
 
     return sorted(flights, key=lambda x: x['flight_id'])
+
+
+def collect_uniform_metadata(items: List, 
+                            property_keys: List[str]) -> tuple[List[str], dict]:
+    """
+    Collect metadata properties that have uniform values across items.
+    
+    This function extracts properties from STAC items and returns them
+    along with appropriate STAC extensions if all non-None values are identical.
+    
+    Parameters
+    ----------
+    items : List[pystac.Item]
+        List of STAC items to extract metadata from
+    property_keys : List[str]
+        List of property keys to check (e.g., ['sci:doi', 'sar:center_frequency'])
+        
+    Returns
+    -------
+    tuple
+        (extensions_needed, extra_fields_dict) where:
+        - extensions_needed: list of STAC extension URLs required
+        - extra_fields_dict: dict of properties with uniform values
+        
+    Examples
+    --------
+    >>> extensions, fields = collect_uniform_metadata(
+    ...     items, 
+    ...     ['sci:doi', 'sci:citation', 'sar:center_frequency', 'sar:bandwidth']
+    ... )
+    >>> collection.stac_extensions = extensions
+    >>> for key, value in fields.items():
+    ...     collection.extra_fields[key] = value
+    """
+    # STAC extension URLs
+    SCI_EXT = 'https://stac-extensions.github.io/scientific/v1.0.0/schema.json'
+    SAR_EXT = 'https://stac-extensions.github.io/sar/v1.3.0/schema.json'
+    
+    extensions = []
+    extra_fields = {}
+    
+    property_mappings = {
+        'sci:doi': SCI_EXT,
+        'sci:citation': SCI_EXT,
+        'sar:center_frequency': SAR_EXT,
+        'sar:bandwidth': SAR_EXT
+    }
+    
+    for key in property_keys:
+        values = [
+            item.properties.get(key) 
+            for item in items 
+            if item.properties.get(key) is not None
+        ]
+        
+        if values and len(np.unique(values)) == 1:
+            ext = property_mappings.get(key)
+            if ext and ext not in extensions:
+                extensions.append(ext)
+            extra_fields[key] = values[0]
+    
+    return extensions, extra_fields
