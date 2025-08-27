@@ -12,6 +12,7 @@ import shapely
 from shapely.geometry import mapping, LineString
 import pyproj
 from shapely.ops import transform
+from dask.distributed import LocalCluster, Client
 
 from .metadata import extract_item_metadata, discover_campaigns, discover_flight_lines
 
@@ -889,7 +890,268 @@ def build_limited_catalog(
     return catalog
 
 
+def build_flat_collection(
+    campaign: dict,
+    data_root: Path,
+    data_product: str = "CSARP_standard",
+    extra_data_products: list[str] = ['CSARP_layer'],
+    base_url: str = "https://data.cresis.ku.edu/data/rds/",
+    max_items: int = None,
+    verbose: bool = False
+) -> pystac.Collection:
+    """
+    Build a single flattened STAC collection for one campaign.
+    
+    This creates a flattened collection structure: campaign -> items (no flight collections).
+    Campaign collections have bbox-only extent with no geometry fields, suitable for
+    parquet export to STAC servers.
+
+    Parameters
+    ----------
+    campaign : dict
+        Campaign metadata with 'name', 'path', 'year', 'location', 'aircraft'
+    data_root : Path
+        Root directory containing campaign data
+    data_product : str, optional
+        Primary data product to process, by default "CSARP_standard"
+    extra_data_products : list[str], optional
+        Additional data products to include, by default ['CSARP_layer']
+    base_url : str, optional
+        Base URL for asset hrefs, by default "https://data.cresis.ku.edu/data/rds/"
+    max_items : int, optional
+        Maximum number of items to process, by default None (all items)
+    verbose : bool, optional
+        If True, print details for each item being processed, by default False
+
+    Returns
+    -------
+    pystac.Collection
+        The built flattened STAC collection for the campaign
+        
+    Raises
+    ------
+    FileNotFoundError
+        If campaign data directory is not found
+    ValueError
+        If no flight lines are found for the campaign
+        
+    Examples
+    --------
+    >>> from xopr.stac import discover_campaigns
+    >>> campaigns = discover_campaigns(Path('/data'))
+    >>> collection = build_flat_collection(campaigns[0], Path('/data'))
+    >>> print(f"Built collection {collection.id} with {len(list(collection.get_items()))} items")
+    
+    >>> # Export collection to parquet
+    >>> from xopr.stac.build import export_collections_to_parquet
+    >>> catalog = create_catalog()
+    >>> catalog.add_child(collection)
+    >>> files = export_collections_to_parquet(catalog, Path('./output'))
+    >>> print(f"Exported to {files[collection.id]}")
+    """
+    campaign_path = Path(campaign['path'])
+    campaign_name = campaign['name']
+
+    if verbose:
+        print(f"Processing campaign: {campaign_name}")
+
+    # Discover flight lines for this campaign
+    try:
+        flight_lines = discover_flight_lines(
+            campaign_path, data_product,
+            extra_data_products=extra_data_products
+        )
+    except FileNotFoundError as e:
+        raise FileNotFoundError(f"Campaign data not found for {campaign_name}: {e}")
+
+    if not flight_lines:
+        raise ValueError(f"No flight lines found for {campaign_name}")
+
+    # Limit the number of flight lines processed if specified
+    if max_items is not None:
+        flight_lines = flight_lines[:max_items]
+
+    # Collect ALL items across all flights for this campaign
+    all_campaign_items = []
+
+    for flight_data in flight_lines:
+        try:
+            items = create_items_from_flight_data(
+                flight_data, base_url, campaign_name, data_product, verbose
+            )
+            all_campaign_items.extend(items)
+
+            flight_id = flight_data['flight_id']
+            if verbose:
+                print(f"  Added {len(items)} items from flight {flight_id}")
+
+            # Break early if we've hit the max items limit
+            if (max_items is not None and
+                    len(all_campaign_items) >= max_items):
+                break
+
+        except Exception as e:
+            flight_id = flight_data['flight_id']
+            if verbose:
+                print(f"Warning: Failed to process flight {flight_id}: {e}")
+            continue
+
+    if not all_campaign_items:
+        raise ValueError(f"No valid items found for {campaign_name}")
+
+    # Create campaign collection with bbox-only extent (no geometry)
+    campaign_extent = build_collection_extent(all_campaign_items)
+    
+    # Collect scientific metadata from all campaign items
+    campaign_dois = [
+        item.properties.get('sci:doi') for item in all_campaign_items
+        if item.properties.get('sci:doi') is not None
+    ]
+    campaign_citations = [
+        item.properties.get('sci:citation')
+        for item in all_campaign_items
+        if item.properties.get('sci:citation') is not None
+    ]
+
+    # Check for unique values and prepare extensions (NO projection extension)
+    campaign_extensions = []
+    campaign_extra_fields = {}
+
+    if campaign_dois and len(np.unique(campaign_dois)) == 1:
+        campaign_extensions.append(SCI_EXT)
+        campaign_extra_fields['sci:doi'] = campaign_dois[0]
+
+    if campaign_citations and len(np.unique(campaign_citations)) == 1:
+        if SCI_EXT not in campaign_extensions:
+            campaign_extensions.append(SCI_EXT)
+        campaign_extra_fields['sci:citation'] = campaign_citations[0]
+
+    # Collect SAR metadata from all campaign items
+    campaign_center_frequencies = [
+        item.properties.get('sar:center_frequency')
+        for item in all_campaign_items
+        if item.properties.get('sar:center_frequency') is not None
+    ]
+    campaign_bandwidths = [
+        item.properties.get('sar:bandwidth')
+        for item in all_campaign_items
+        if item.properties.get('sar:bandwidth') is not None
+    ]
+
+    if (campaign_center_frequencies and
+            len(np.unique(campaign_center_frequencies)) == 1):
+        campaign_extensions.append(SAR_EXT)
+        campaign_extra_fields['sar:center_frequency'] = (
+            campaign_center_frequencies[0]
+        )
+
+    if (campaign_bandwidths and
+            len(np.unique(campaign_bandwidths)) == 1):
+        if SAR_EXT not in campaign_extensions:
+            campaign_extensions.append(SAR_EXT)
+        campaign_extra_fields['sar:bandwidth'] = (
+            campaign_bandwidths[0]
+        )
+
+    # Create campaign collection with NO geometry field at all
+    campaign_collection = create_collection(
+        collection_id=campaign_name,
+        description=(
+            f"{campaign['year']} {campaign['aircraft']} flights "
+            f"over {campaign['location']}"
+        ),
+        extent=campaign_extent,
+        stac_extensions=(
+            campaign_extensions if campaign_extensions else None
+        )
+        # Note: no geometry parameter - bbox-only for parquet compatibility
+    )
+
+    # Add scientific extra fields to campaign collection
+    for key, value in campaign_extra_fields.items():
+        campaign_collection.extra_fields[key] = value
+
+    # Add ALL items directly to campaign collection (flattened structure)
+    campaign_collection.add_items(all_campaign_items)
+    
+    if verbose:
+        print(f"Added flattened campaign collection {campaign_name} with {len(all_campaign_items)} total items (no flight collections)")
+    
+    return campaign_collection
+
+
 def build_flat_catalog(
+    campaigns: list[dict],
+    catalog_id: str = "OPR",
+    catalog_description: str = "Open Polar Radar airborne data",
+    data_product: str = "CSARP_standard",
+    extra_data_products: list[str] = ['CSARP_layer'],
+    base_url: str = "https://data.cresis.ku.edu/data/rds/",
+    max_items: int = None,
+    verbose: bool = False
+) -> pystac.Catalog:
+    """
+    Build flattened STAC catalog from a list of campaign collections.
+    
+    This creates a simplified structure without flight collections: catalog -> campaigns -> items.
+    Campaign collections have bbox-only extent with no geometry fields, suitable for
+    parquet export to STAC servers.
+
+    Parameters
+    ----------
+    campaigns : list[dict]
+        List of campaign dictionaries with 'name', 'path', 'year', 'location', 'aircraft'
+    catalog_id : str, optional
+        Catalog ID, by default "OPR"
+    catalog_description : str, optional
+        Catalog description, by default "Open Polar Radar airborne data"
+    data_product : str, optional
+        Primary data product to process, by default "CSARP_standard"
+    extra_data_products : list[str], optional
+        Additional data products to include, by default ['CSARP_layer']
+    base_url : str, optional
+        Base URL for asset hrefs, by default "https://data.cresis.ku.edu/data/rds/"
+    max_items : int, optional
+        Maximum number of items per campaign, by default None (all items)
+    verbose : bool, optional
+        If True, print details for each item being processed, by default False
+
+    Returns
+    -------
+    pystac.Catalog
+        The built flattened STAC catalog
+        
+    Examples
+    --------
+    >>> from xopr.stac import discover_campaigns
+    >>> campaigns = discover_campaigns(Path('/data'))
+    >>> catalog = build_flat_catalog(campaigns[:2], verbose=True)
+    >>> catalog.normalize_and_save('output')
+    """
+    catalog = create_catalog(catalog_id=catalog_id, description=catalog_description)
+    
+    for campaign in campaigns:
+        try:
+            collection = build_flat_collection(
+                campaign=campaign,
+                data_root=Path('.'),  # Not used since campaign has full path
+                data_product=data_product,
+                extra_data_products=extra_data_products,
+                base_url=base_url,
+                max_items=max_items,
+                verbose=verbose
+            )
+            catalog.add_child(collection)
+            
+        except (FileNotFoundError, ValueError) as e:
+            if verbose:
+                print(f"Warning: Skipping {campaign['name']}: {e}")
+            continue
+    
+    return catalog
+
+
+def build_flat_catalog_dask(
     data_root: Path,
     output_path: Path,
     catalog_id: str = "OPR",
@@ -898,14 +1160,15 @@ def build_flat_catalog(
     base_url: str = "https://data.cresis.ku.edu/data/rds/",
     max_items: int = None,
     campaign_filter: list = None,
+    n_workers: int = 4,
+    memory_limit: str = '4GB',
     verbose: bool = False
 ) -> pystac.Catalog:
     """
-    Build flattened STAC catalog for parquet export: catalog -> campaigns -> items.
+    Build flattened STAC catalog using Dask for parallel campaign processing.
     
-    This creates a simplified structure without flight collections, suitable for
-    parquet export to STAC servers. Campaign collections have bbox-only extent
-    with no geometry fields, but items keep full LineString geometry.
+    This function processes campaigns in parallel using Dask LocalCluster,
+    then assembles them into a flat catalog structure.
 
     Parameters
     ----------
@@ -917,14 +1180,18 @@ def build_flat_catalog(
         Catalog ID, by default "OPR"
     data_product : str, optional
         Primary data product to process, by default "CSARP_standard"
-    extra_data_products : List[str], optional
+    extra_data_products : list[str], optional
         Additional data products to include, by default ['CSARP_layer']
     base_url : str, optional
         Base URL for asset hrefs, by default "https://data.cresis.ku.edu/data/rds/"
     max_items : int, optional
-        Maximum number of items to process, by default None (all items)
-    campaign_filter : List[str], optional
+        Maximum number of items per campaign, by default None (all items)
+    campaign_filter : list, optional
         Specific campaigns to process, by default None (all campaigns)
+    n_workers : int, optional
+        Number of Dask workers, by default 4
+    memory_limit : str, optional
+        Memory limit per worker, by default '4GB'
     verbose : bool, optional
         If True, print details for each item being processed, by default False
 
@@ -932,147 +1199,84 @@ def build_flat_catalog(
     -------
     pystac.Catalog
         The built flattened STAC catalog
+        
+    Examples
+    --------
+    >>> catalog = build_flat_catalog_dask(
+    ...     Path('/data'), Path('./output'), 
+    ...     n_workers=8, verbose=True
+    ... )
+    >>> # Export to parquet
+    >>> from xopr.stac.build import export_to_geoparquet
+    >>> export_to_geoparquet(catalog, Path('./output/catalog.parquet'))
     """
-    catalog = create_catalog(catalog_id=catalog_id)
+    # Discover campaigns
     campaigns = discover_campaigns(data_root)
-
+    
     # Filter campaigns if specified
     if campaign_filter:
         campaigns = [c for c in campaigns if c['name'] in campaign_filter]
-
-    for campaign in campaigns:
-        campaign_path = Path(campaign['path'])
-        campaign_name = campaign['name']
-
-        print(f"Processing campaign: {campaign_name}")
-
-        try:
-            flight_lines = discover_flight_lines(
-                campaign_path, data_product,
-                extra_data_products=extra_data_products
+    
+    if verbose:
+        print(f"🚀 Processing {len(campaigns)} campaigns with {n_workers} Dask workers")
+    
+    # Set up Dask cluster
+    cluster = LocalCluster(memory_limit=memory_limit, n_workers=n_workers)
+    client = Client(cluster)
+    
+    try:
+        if verbose:
+            print(f"   Dashboard: {client.dashboard_link}")
+        
+        # Submit campaign processing tasks
+        futures = []
+        for campaign in campaigns:
+            future = client.submit(
+                build_flat_collection,
+                campaign=campaign,
+                data_root=data_root,
+                data_product=data_product,
+                extra_data_products=extra_data_products,
+                base_url=base_url,
+                max_items=max_items,
+                verbose=False  # Disable verbose for workers to reduce noise
             )
-        except FileNotFoundError as e:
-            print(f"Warning: Skipping {campaign_name}: {e}")
-            continue
-
-        if not flight_lines:
-            print(f"Warning: No flight lines found for {campaign_name}")
-            continue
-
-        # Limit the number of flight lines processed if specified
-        if max_items is not None:
-            flight_lines = flight_lines[:max_items]
-
-        # Collect ALL items across all flights for this campaign
-        all_campaign_items = []
-
-        for flight_data in flight_lines:
-            try:
-                items = create_items_from_flight_data(
-                    flight_data, base_url, campaign_name, data_product, verbose
-                )
-                all_campaign_items.extend(items)
-
-                flight_id = flight_data['flight_id']
-                print(f"  Added {len(items)} items from flight {flight_id}")
-
-                # Break early if we've hit the max items limit
-                if (max_items is not None and
-                        len(all_campaign_items) >= max_items):
-                    break
-
-            except Exception as e:
-                flight_id = flight_data['flight_id']
-                print(f"Warning: Failed to process flight {flight_id}: {e}")
-                continue
-
-        if all_campaign_items:
-            # Create campaign collection with bbox-only extent (no geometry)
-            campaign_extent = build_collection_extent(all_campaign_items)
+            futures.append(future)
             
-            # Collect scientific metadata from all campaign items
-            campaign_dois = [
-                item.properties.get('sci:doi') for item in all_campaign_items
-                if item.properties.get('sci:doi') is not None
-            ]
-            campaign_citations = [
-                item.properties.get('sci:citation')
-                for item in all_campaign_items
-                if item.properties.get('sci:citation') is not None
-            ]
-
-            # Check for unique values and prepare extensions (NO projection extension)
-            campaign_extensions = []
-            campaign_extra_fields = {}
-
-            if campaign_dois and len(np.unique(campaign_dois)) == 1:
-                campaign_extensions.append(SCI_EXT)
-                campaign_extra_fields['sci:doi'] = campaign_dois[0]
-
-            if campaign_citations and len(np.unique(campaign_citations)) == 1:
-                if SCI_EXT not in campaign_extensions:
-                    campaign_extensions.append(SCI_EXT)
-                campaign_extra_fields['sci:citation'] = campaign_citations[0]
-
-            # Collect SAR metadata from all campaign items
-            campaign_center_frequencies = [
-                item.properties.get('sar:center_frequency')
-                for item in all_campaign_items
-                if item.properties.get('sar:center_frequency') is not None
-            ]
-            campaign_bandwidths = [
-                item.properties.get('sar:bandwidth')
-                for item in all_campaign_items
-                if item.properties.get('sar:bandwidth') is not None
-            ]
-
-            if (campaign_center_frequencies and
-                    len(np.unique(campaign_center_frequencies)) == 1):
-                campaign_extensions.append(SAR_EXT)
-                campaign_extra_fields['sar:center_frequency'] = (
-                    campaign_center_frequencies[0]
-                )
-
-            if (campaign_bandwidths and
-                    len(np.unique(campaign_bandwidths)) == 1):
-                if SAR_EXT not in campaign_extensions:
-                    campaign_extensions.append(SAR_EXT)
-                campaign_extra_fields['sar:bandwidth'] = (
-                    campaign_bandwidths[0]
-                )
-
-            # Create campaign collection with NO geometry field at all
-            campaign_collection = create_collection(
-                collection_id=campaign_name,
-                description=(
-                    f"{campaign['year']} {campaign['aircraft']} flights "
-                    f"over {campaign['location']}"
-                ),
-                extent=campaign_extent,
-                stac_extensions=(
-                    campaign_extensions if campaign_extensions else None
-                )
-                # Note: no geometry parameter - bbox-only for parquet compatibility
-            )
-
-            # Add scientific extra fields to campaign collection
-            for key, value in campaign_extra_fields.items():
-                campaign_collection.extra_fields[key] = value
-
-            # Add ALL items directly to campaign collection (flattened structure)
-            campaign_collection.add_items(all_campaign_items)
-            catalog.add_child(campaign_collection)
-
-            print(
-                f"Added flattened campaign collection {campaign_name} with "
-                f"{len(all_campaign_items)} total items (no flight collections)"
-            )
-
+        if verbose:
+            print(f"   Submitted {len(futures)} campaign tasks")
+        
+        # Collect results
+        collections = []
+        for i, future in enumerate(futures):
+            try:
+                collection = future.result()
+                collections.append(collection)
+                if verbose:
+                    print(f"   ✅ [{i+1}/{len(futures)}] Completed: {collection.id}")
+            except Exception as e:
+                campaign_name = campaigns[i]['name']
+                if verbose:
+                    print(f"   ❌ [{i+1}/{len(futures)}] Failed: {campaign_name} - {e}")
+        
+        # Build catalog from successful collections
+        catalog = create_catalog(catalog_id=catalog_id, description="Open Polar Radar airborne data")
+        for collection in collections:
+            catalog.add_child(collection)
+            
+    finally:
+        # Clean up cluster
+        client.close()
+        cluster.close()
+    
+    # Save the catalog to specified output path
     output_path.mkdir(parents=True, exist_ok=True)
     catalog.normalize_and_save(
         root_href=str(output_path),
         catalog_type=pystac.CatalogType.SELF_CONTAINED
     )
 
-    print(f"Flattened catalog saved to {output_path}")
+    if verbose:
+        print(f"🎉 Flattened catalog saved to {output_path}")
+        print(f"   Processed {len(collections)} campaigns successfully")
     return catalog
