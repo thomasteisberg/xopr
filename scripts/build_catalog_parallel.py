@@ -275,7 +275,7 @@ def parse_arguments():
     parser.add_argument(
         "--flat-parquet",
         action="store_true",
-        help="Use flattened catalog structure for parquet export (no flight collections)"
+        help="Use flattened catalog structure optimized for parquet servers (auto-enables --export-collections)"
     )
     
     # Parallel processing
@@ -352,6 +352,11 @@ def main():
     if args.extra_products:
         print(f"   Extra products: {', '.join(args.extra_products)}")
     print(f"   Base URL: {args.base_url}")
+    
+    # Auto-enable export-collections for flat-parquet catalogs
+    if args.flat_parquet and not args.export_collections:
+        print("📦 Auto-enabling --export-collections for flat catalog structure")
+        args.export_collections = True
     
     # Load campaign filter
     campaign_filter = load_campaign_filter(args)
