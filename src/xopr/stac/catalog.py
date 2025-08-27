@@ -8,7 +8,10 @@ from typing import List, Optional, Dict, Any, Union
 
 import numpy as np
 import pystac
+import stac_geoparquet
 from dask.distributed import LocalCluster, Client
+from shapely.geometry import mapping
+from dask.distributed import as_completed
 
 from .metadata import extract_item_metadata, discover_campaigns, discover_flight_lines, collect_uniform_metadata
 from .geometry import (
@@ -507,15 +510,15 @@ def build_limited_catalog(
 def build_flat_collection(
     campaign: dict,
     data_root: Path,
-    config: Optional[CatalogConfig] = None,
-    **kwargs  # For backward compatibility
-) -> pystac.Collection:
+    config: CatalogConfig
+) -> Path:
     """
-    Build a single flattened STAC collection for one campaign.
+    Build a single flattened STAC collection for one campaign and write to parquet.
     
     This creates a flattened collection structure: campaign -> items (no flight collections).
     Campaign collections have bbox-only extent with no geometry fields, suitable for
-    parquet export to STAC servers.
+    parquet export to STAC servers. The collection is immediately written to parquet
+    and only the path is returned to avoid memory accumulation.
 
     Parameters
     ----------
@@ -523,16 +526,13 @@ def build_flat_collection(
         Campaign metadata with 'name', 'path', 'year', 'location', 'aircraft'
     data_root : Path
         Root directory containing campaign data
-    config : CatalogConfig, optional
-        Configuration object with catalog parameters. If None, uses defaults.
-    **kwargs
-        For backward compatibility - individual parameters can be passed:
-        data_product, extra_data_products, base_url, max_items, verbose
+    config : CatalogConfig
+        Configuration object with catalog parameters. Must have output_dir set.
 
     Returns
     -------
-    pystac.Collection
-        The built flattened STAC collection for the campaign
+    Path
+        Path to the written parquet file
         
     Raises
     ------
@@ -543,20 +543,15 @@ def build_flat_collection(
         
     Examples
     --------
-    >>> from xopr.stac import discover_campaigns
+    >>> from xopr.stac import discover_campaigns, CatalogConfig
     >>> campaigns = discover_campaigns(Path('/data'))
-    >>> collection = build_flat_collection(campaigns[0], Path('/data'))
-    >>> print(f"Built collection {collection.id} with {len(list(collection.get_items()))} items")
-    
-    >>> # Export collection to parquet
-    >>> from xopr.stac.build import export_collections_to_parquet
-    >>> catalog = create_catalog()
-    >>> catalog.add_child(collection)
-    >>> files = export_collections_to_parquet(catalog, Path('./output'))
-    >>> print(f"Exported to {files[collection.id]}")
+    >>> config = CatalogConfig(output_dir=Path('./output'))
+    >>> parquet_path = build_flat_collection(campaigns[0], Path('/data'), config)
+    >>> print(f"Exported campaign to {parquet_path}")
     """
-    # Handle backward compatibility and config
-    config = config_from_kwargs(config, **kwargs)
+    # Validate output_dir is set
+    if config.output_dir is None:
+        raise ValueError("config.output_dir must be set for build_flat_collection")
     
     campaign_path = Path(campaign['path'])
     campaign_name = campaign['name']
@@ -641,67 +636,80 @@ def build_flat_collection(
     if config.verbose:
         print(f"Added flattened campaign collection {campaign_name} with {len(all_campaign_items)} total items (no flight collections)")
     
-    return campaign_collection
+    # Export to parquet and return the path (not the collection) to avoid memory accumulation
+    from .build import export_collection_to_parquet
+    parquet_path = export_collection_to_parquet(campaign_collection, config.output_dir, config.verbose)
+    
+    if not parquet_path:
+        raise ValueError(f"Failed to write parquet file for campaign {campaign_name}")
+    
+    return parquet_path
 
 
-def build_flat_catalog(
-    campaigns: list[dict],
+
+def build_catalog_from_parquet_files(
+    parquet_paths: List[Path],
     catalog_id: str = "OPR",
     catalog_description: str = "Open Polar Radar airborne data",
-    config: Optional[CatalogConfig] = None,
-    **kwargs  # For backward compatibility
+    config: Optional[CatalogConfig] = None
 ) -> pystac.Catalog:
     """
-    Build flattened STAC catalog from a list of campaign collections.
+    Build a STAC catalog from existing parquet files.
     
-    This creates a simplified structure without flight collections: catalog -> campaigns -> items.
-    Campaign collections have bbox-only extent with no geometry fields, suitable for
-    parquet export to STAC servers.
+    This function reads collections from parquet files using stac_geoparquet
+    and assembles them into a STAC catalog. Each parquet file contains exactly
+    one collection.
 
     Parameters
     ----------
-    campaigns : list[dict]
-        List of campaign dictionaries with 'name', 'path', 'year', 'location', 'aircraft'
+    parquet_paths : List[Path]
+        List of paths to parquet files (one collection per file)
     catalog_id : str, optional
         Catalog ID, by default "OPR"
     catalog_description : str, optional
         Catalog description, by default "Open Polar Radar airborne data"
     config : CatalogConfig, optional
         Configuration object with catalog parameters. If None, uses defaults.
-    **kwargs
-        For backward compatibility - individual parameters can be passed:
-        data_product, extra_data_products, base_url, max_items, verbose
 
     Returns
     -------
     pystac.Catalog
-        The built flattened STAC catalog
+        The built STAC catalog with collections
         
     Examples
     --------
-    >>> from xopr.stac import discover_campaigns
-    >>> campaigns = discover_campaigns(Path('/data'))
-    >>> catalog = build_flat_catalog(campaigns[:2], verbose=True)
-    >>> catalog.normalize_and_save('output')
+    >>> parquet_files = list(Path('./output').glob("*.parquet"))
+    >>> catalog = build_catalog_from_parquet_files(
+    ...     parquet_files, config=CatalogConfig(verbose=True)
+    ... )
     """
-    # Handle backward compatibility and config
-    config = config_from_kwargs(config, **kwargs)
+    # Handle config
+    if config is None:
+        config = CatalogConfig()
     
     catalog = create_catalog(catalog_id=catalog_id, description=catalog_description)
     
-    for campaign in campaigns:
+    if config.verbose:
+        print(f"Building catalog from {len(parquet_paths)} parquet files")
+    
+    for parquet_path in parquet_paths:
         try:
-            collection = build_flat_collection(
-                campaign=campaign,
-                data_root=Path('.'),  # Not used since campaign has full path
-                config=config
-            )
+            # Load the collection from parquet using stac_geoparquet
+            # Returns a list but we know there's only one collection per file
+            collection = stac_geoparquet.load_collections(str(parquet_path))[0]
             catalog.add_child(collection)
             
-        except (FileNotFoundError, ValueError) as e:
             if config.verbose:
-                print(f"Warning: Skipping {campaign['name']}: {e}")
+                print(f"  ✅ Added collection: {collection.id} from {parquet_path.name}")
+                    
+        except Exception as e:
+            if config.verbose:
+                print(f"  ❌ Failed to process {parquet_path.name}: {e}")
             continue
+    
+    if config.verbose:
+        collections = list(catalog.get_collections())
+        print(f"Built catalog with {len(collections)} collections")
     
     return catalog
 
@@ -719,32 +727,25 @@ def build_flat_catalog_dask(
     Build flattened STAC catalog using Dask for parallel campaign processing.
     
     This function processes campaigns in parallel using Dask LocalCluster,
-    then assembles them into a flat catalog structure.
+    with each worker writing parquet files immediately to avoid memory accumulation.
+    The catalog is then built from the parquet files.
 
     Parameters
     ----------
     data_root : Path
         Root directory containing campaign data
     output_path : Path
-        Directory where catalog will be saved
+        Directory where catalog and parquet files will be saved
     catalog_id : str, optional
         Catalog ID, by default "OPR"
-    data_product : str, optional
-        Primary data product to process, by default "CSARP_standard"
-    extra_data_products : list[str], optional
-        Additional data products to include, by default ['CSARP_layer']
-    base_url : str, optional
-        Base URL for asset hrefs, by default "https://data.cresis.ku.edu/data/rds/"
-    max_items : int, optional
-        Maximum number of items per campaign, by default None (all items)
+    catalog_description : str, optional
+        Catalog description, by default "Open Polar Radar airborne data"
     campaign_filter : list, optional
         Specific campaigns to process, by default None (all campaigns)
-    n_workers : int, optional
-        Number of Dask workers, by default 4
-    memory_limit : str, optional
-        Memory limit per worker, by default 'auto'
-    verbose : bool, optional
-        If True, print details for each item being processed, by default False
+    config : CatalogConfig, optional
+        Configuration object with catalog parameters. If None, uses defaults.
+    **kwargs
+        For backward compatibility - individual parameters can be passed
 
     Returns
     -------
@@ -753,14 +754,19 @@ def build_flat_catalog_dask(
         
     Examples
     --------
+    >>> config = CatalogConfig(n_workers=8, verbose=True, output_dir=Path('./output'))
     >>> catalog = build_flat_catalog_dask(
-    ...     Path('/data'), Path('./output'), 
-    ...     n_workers=8, verbose=True
+    ...     Path('/data'), Path('./output'), config=config
     ... )
-    >>> # Export to parquet
-    >>> from xopr.stac.build import export_to_geoparquet
-    >>> export_to_geoparquet(catalog, Path('./output/catalog.parquet'))
+    >>> # Parquet files are written during processing to ./output/<campaign>.parquet
     """
+    # Handle backward compatibility and config
+    config = config_from_kwargs(config, **kwargs)
+    
+    # Set output_dir in config if not already set
+    if config.output_dir is None:
+        config = config.copy_with(output_dir=output_path)
+    
     # Discover campaigns
     campaigns = discover_campaigns(data_root)
     
@@ -768,66 +774,84 @@ def build_flat_catalog_dask(
     if campaign_filter:
         campaigns = [c for c in campaigns if c['name'] in campaign_filter]
     
-    if verbose:
-        print(f"🚀 Processing {len(campaigns)} campaigns with {n_workers} Dask workers")
+    print(f"🚀 Processing {len(campaigns)} campaigns with Dask workers")
+    
+    # Ensure output directory exists
+    output_path.mkdir(parents=True, exist_ok=True)
     
     # Set up Dask cluster
-    cluster = LocalCluster(memory_limit=memory_limit, n_workers=n_workers)
+    cluster = LocalCluster(
+        memory_limit=config.memory_limit,
+        n_workers=config.n_workers,
+        threads_per_worker=config.threads_per_worker
+    )
     client = Client(cluster)
     
     try:
-        if verbose:
-            print(f"   Dashboard: {client.dashboard_link}")
+        print(f"   Dashboard: {client.dashboard_link}")
         
-        # Submit campaign processing tasks
-        futures = []
+        # Submit campaign processing tasks - will return parquet paths
+        futures_to_campaigns = {}
         for campaign in campaigns:
             future = client.submit(
                 build_flat_collection,
                 campaign=campaign,
                 data_root=data_root,
-                data_product=data_product,
-                extra_data_products=extra_data_products,
-                base_url=base_url,
-                max_items=max_items,
-                verbose=False  # Disable verbose for workers to reduce noise
+                config=config
             )
-            futures.append(future)
+            futures_to_campaigns[future] = campaign
             
-        if verbose:
-            print(f"   Submitted {len(futures)} campaign tasks")
+        if config.verbose:
+            print(f"   Submitted {len(futures_to_campaigns)} campaign tasks")
+            print(f"   Parquet files will be written to: {output_path}/<campaign>.parquet")
         
-        # Collect results
-        collections = []
-        for i, future in enumerate(futures):
+        # Process results as they complete and collect parquet paths
+        completed_count = 0
+        failed_campaigns = []
+        parquet_paths = []
+        
+        for future in as_completed(futures_to_campaigns):
+            completed_count += 1
+            campaign = futures_to_campaigns[future]
+            campaign_name = campaign['name']
+            
             try:
-                collection = future.result()
-                collections.append(collection)
-                if verbose:
-                    print(f"   ✅ [{i+1}/{len(futures)}] Completed: {collection.id}")
+                # Get the parquet path from the completed future
+                parquet_path = future.result()
+                parquet_paths.append(parquet_path)
+                
+                print(f"   ✅ [{completed_count}/{len(futures_to_campaigns)}] Completed: {campaign_name} → {parquet_path.name}")
+                
             except Exception as e:
-                campaign_name = campaigns[i]['name']
-                if verbose:
-                    print(f"   ❌ [{i+1}/{len(futures)}] Failed: {campaign_name} - {e}")
+                failed_campaigns.append(campaign_name)
+                print(f"   ❌ [{completed_count}/{len(futures_to_campaigns)}] Failed: {campaign_name} - {e}")
         
-        # Build catalog from successful collections
-        catalog = create_catalog(catalog_id=catalog_id, description="Open Polar Radar airborne data")
-        for collection in collections:
-            catalog.add_child(collection)
+        if failed_campaigns:
+            print(f"\n   ⚠️  {len(failed_campaigns)} campaigns failed: {', '.join(failed_campaigns)}")
             
     finally:
         # Clean up cluster
         client.close()
         cluster.close()
     
-    # Save the catalog to specified output path
-    output_path.mkdir(parents=True, exist_ok=True)
+    # Build catalog from the parquet files
+    catalog = build_catalog_from_parquet_files(
+        parquet_paths=parquet_paths,
+        catalog_id=catalog_id,
+        catalog_description=catalog_description,
+        config=config
+    )
+    
+    # Save the catalog.json
     catalog.normalize_and_save(
         root_href=str(output_path),
         catalog_type=pystac.CatalogType.SELF_CONTAINED
     )
 
     if config.verbose:
-        print(f"🎉 Flattened catalog saved to {output_path}")
-        print(f"   Processed {len(collections)} campaigns successfully")
+        successful = len(parquet_paths)
+        print(f"\n🎉 Flattened catalog saved to {output_path}/catalog.json")
+        print(f"   Processed {successful}/{len(campaigns)} campaigns successfully")
+        print(f"   Campaign parquet files: {output_path}/<campaign>.parquet")
+    
     return catalog

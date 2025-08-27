@@ -15,7 +15,7 @@ from typing import List, Dict, Any, Optional
 
 from dask.distributed import Client, as_completed
 
-from xopr.stac import discover_campaigns, create_catalog, build_flat_catalog, build_flat_catalog_dask
+from xopr.stac import discover_campaigns, create_catalog, build_flat_catalog_dask
 from xopr.stac.config import CatalogConfig
 from xopr.stac.build import (
     process_single_campaign,

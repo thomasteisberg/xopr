@@ -448,6 +448,76 @@ def export_to_geoparquet(catalog: pystac.Catalog, output_file: Path, verbose: bo
         print(f"  ✅ Geoparquet saved: {output_file} ({output_file.stat().st_size / 1024:.1f} KB)")
 
 
+def export_collection_to_parquet(
+    collection: pystac.Collection,
+    output_dir: Path,
+    verbose: bool = False
+) -> Optional[Path]:
+    """
+    Export a single STAC collection to a parquet file.
+    
+    Parameters
+    ----------
+    collection : pystac.Collection
+        STAC collection to export
+    output_dir : Path
+        Output directory for the parquet file
+    verbose : bool, optional
+        If True, print progress messages
+        
+    Returns
+    -------
+    Path or None
+        Path to the created parquet file, or None if no items to export
+        
+    Examples
+    --------
+    >>> collection = build_flat_collection(campaign, data_root)
+    >>> parquet_path = export_collection_to_parquet(collection, Path('output/'))
+    >>> print(f"Exported to {parquet_path}")
+    """
+    # Get items from collection and subcollections
+    collection_items = list(collection.get_items())
+    if not collection_items:
+        for child_collection in collection.get_collections():
+            collection_items.extend(list(child_collection.get_items()))
+    
+    if not collection_items:
+        if verbose:
+            print(f"  Skipping {collection.id}: no items")
+        return None
+    
+    # Ensure output directory exists
+    output_dir.mkdir(parents=True, exist_ok=True)
+    
+    # Export to parquet
+    parquet_file = output_dir / f"{collection.id}.parquet"
+    ndjson_file = parquet_file.with_suffix('.json')
+    
+    if verbose:
+        print(f"  Exporting collection: {collection.id} ({len(collection_items)} items)")
+    
+    # Write to NDJSON
+    with open(ndjson_file, 'w') as f:
+        for item in collection_items:
+            json.dump(item.to_dict(), f, separators=(",", ":"))
+            f.write("\n")
+    
+    # Convert to parquet
+    stac_geoparquet.arrow.parse_stac_ndjson_to_parquet(
+        str(ndjson_file), str(parquet_file)
+    )
+    
+    # Clean up
+    ndjson_file.unlink()
+    
+    if verbose:
+        size_kb = parquet_file.stat().st_size / 1024
+        print(f"  ✅ {collection.id}.parquet saved ({size_kb:.1f} KB)")
+    
+    return parquet_file
+
+
 def export_collections_to_parquet(
     catalog: pystac.Catalog, 
     output_dir: Path, 
@@ -489,43 +559,9 @@ def export_collections_to_parquet(
         return output_files
     
     for collection in collections:
-        # Get items from collection and subcollections
-        collection_items = list(collection.get_items())
-        if not collection_items:
-            for child_collection in collection.get_collections():
-                collection_items.extend(list(child_collection.get_items()))
-        
-        if not collection_items:
-            if verbose:
-                print(f"  Skipping {collection.id}: no items")
-            continue
-        
-        # Export to parquet
-        parquet_file = output_dir / f"{collection.id}.parquet"
-        ndjson_file = parquet_file.with_suffix('.json')
-        
-        if verbose:
-            print(f"  Processing collection: {collection.id} ({len(collection_items)} items)")
-        
-        # Write to NDJSON
-        with open(ndjson_file, 'w') as f:
-            for item in collection_items:
-                json.dump(item.to_dict(), f, separators=(",", ":"))
-                f.write("\n")
-        
-        # Convert to parquet
-        stac_geoparquet.arrow.parse_stac_ndjson_to_parquet(
-            str(ndjson_file), str(parquet_file)
-        )
-        
-        # Clean up
-        ndjson_file.unlink()
-        
-        output_files[collection.id] = parquet_file
-        
-        if verbose:
-            size_kb = parquet_file.stat().st_size / 1024
-            print(f"  ✅ {collection.id}.parquet saved ({size_kb:.1f} KB)")
+        parquet_path = export_collection_to_parquet(collection, output_dir, verbose)
+        if parquet_path:
+            output_files[collection.id] = parquet_path
     
     return output_files
 

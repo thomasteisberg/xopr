@@ -60,6 +60,7 @@ class CatalogConfig:
     base_url: str = "https://data.cresis.ku.edu/data/rds/"
     max_items: Optional[int] = None
     verbose: bool = False
+    output_dir: Optional[Path] = None  # Directory for writing parquet files
     
     # Dask parallel processing parameters (None = sequential processing)
     n_workers: Optional[int] = None
@@ -187,8 +188,8 @@ def config_from_kwargs(config: Optional[CatalogConfig] = None, **kwargs) -> Cata
         # Create new config from kwargs
         valid_fields = {
             'data_product', 'extra_data_products', 'base_url', 
-            'max_items', 'verbose', 'n_workers', 'memory_limit', 
-            'threads_per_worker'
+            'max_items', 'verbose', 'output_dir', 'n_workers', 
+            'memory_limit', 'threads_per_worker'
         }
         config_kwargs = {k: v for k, v in kwargs.items() if k in valid_fields}
         return CatalogConfig(**config_kwargs)
@@ -196,8 +197,8 @@ def config_from_kwargs(config: Optional[CatalogConfig] = None, **kwargs) -> Cata
         # Create copy with overrides
         valid_fields = {
             'data_product', 'extra_data_products', 'base_url', 
-            'max_items', 'verbose', 'n_workers', 'memory_limit', 
-            'threads_per_worker'
+            'max_items', 'verbose', 'output_dir', 'n_workers', 
+            'memory_limit', 'threads_per_worker'
         }
         override_kwargs = {k: v for k, v in kwargs.items() if k in valid_fields}
         return config.copy_with(**override_kwargs)
