@@ -16,6 +16,7 @@ from typing import List, Dict, Any, Optional
 from dask.distributed import Client, as_completed
 
 from xopr.stac import discover_campaigns, create_catalog, build_flat_catalog, build_flat_catalog_dask
+from xopr.stac.config import CatalogConfig
 from xopr.stac.build import (
     process_single_campaign,
     save_catalog,
@@ -275,7 +276,7 @@ def parse_arguments():
     parser.add_argument(
         "--flat-parquet",
         action="store_true",
-        help="Use flattened catalog structure optimized for parquet servers (auto-enables --export-collections)"
+        help="Use flattened catalog structure optimized for parquet servers (includes parquet export and auto-enables --export-collections)"
     )
     
     # Parallel processing
@@ -292,6 +293,12 @@ def parse_arguments():
         help="Number of threads per worker"
     )
     parser.add_argument(
+        "--memory-limit",
+        type=str,
+        default="auto",
+        help="Memory limit per Dask worker (e.g., '4GB', '8GB', 'auto')"
+    )
+    parser.add_argument(
         "--scheduler-address",
         type=str,
         default=None,
@@ -299,11 +306,6 @@ def parse_arguments():
     )
     
     # Export options
-    parser.add_argument(
-        "--export-parquet",
-        action="store_true",
-        help="Export catalog items to geoparquet"
-    )
     parser.add_argument(
         "--export-collections",
         action="store_true",
@@ -353,7 +355,7 @@ def main():
         print(f"   Extra products: {', '.join(args.extra_products)}")
     print(f"   Base URL: {args.base_url}")
     
-    # Auto-enable export-collections for flat-parquet catalogs
+    # Auto-enable parquet exports for flat-parquet catalogs
     if args.flat_parquet and not args.export_collections:
         print("📦 Auto-enabling --export-collections for flat catalog structure")
         args.export_collections = True
@@ -377,6 +379,18 @@ def main():
         for c in campaigns:
             print(f"     - {c['name']}")
     
+    # Create configuration object
+    config = CatalogConfig(
+        data_product=args.data_product,
+        extra_data_products=args.extra_products,
+        base_url=args.base_url,
+        max_items=args.max_flights,
+        verbose=args.verbose,
+        n_workers=args.n_workers,
+        memory_limit=args.memory_limit,
+        threads_per_worker=args.threads_per_worker
+    )
+    
     try:
         if args.flat_parquet:
             # Build flat catalog structure using Dask parallel processing
@@ -387,13 +401,9 @@ def main():
                 data_root=args.data_root,
                 output_path=args.output_dir,
                 catalog_id=args.catalog_id,
-                data_product=args.data_product,
-                extra_data_products=args.extra_products,
-                base_url=args.base_url,
-                max_items=args.max_flights,
+                catalog_description=args.catalog_description,
                 campaign_filter=[c['name'] for c in campaigns] if campaign_filter else None,
-                n_workers=args.n_workers or 2,
-                verbose=args.verbose
+                config=config
             )
             
             print(f"   ✅ Flat catalog built and saved: {args.output_dir}/catalog.json")
@@ -436,8 +446,8 @@ def main():
             save_catalog(catalog, args.output_dir)
             print(f"   ✅ Catalog saved: {args.output_dir}/catalog.json")
         
-        # Export to geoparquet if requested
-        if args.export_parquet:
+        # Export to geoparquet for flat catalogs
+        if args.flat_parquet:
             parquet_file = args.output_dir / f"{args.catalog_id.lower()}.parquet"
             export_to_geoparquet(catalog, parquet_file, verbose=args.verbose)
         
@@ -479,7 +489,7 @@ def main():
         
         print("\n🎉 Complete! STAC catalog ready for use.")
         print(f"   Catalog: {args.output_dir}/catalog.json")
-        if args.export_parquet:
+        if args.flat_parquet:
             print(f"   GeoParquet: {parquet_file}")
         if args.export_collections:
             print(f"   Collection parquets: {args.output_dir}/<collection_id>.parquet")
