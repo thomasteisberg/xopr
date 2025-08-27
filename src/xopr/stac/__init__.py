@@ -8,9 +8,14 @@ across radar campaigns and data products.
 
 from .catalog import (
     create_catalog, create_collection, create_item,
-    build_collection_extent, create_items_from_flight_data,
+    create_items_from_flight_data,
     build_limited_catalog, build_flat_catalog, build_flat_collection,
     build_flat_catalog_dask
+)
+from .config import CatalogConfig
+from .geometry import (
+    build_collection_extent, build_collection_extent_and_geometry,
+    merge_item_geometries, merge_flight_geometries
 )
 from .metadata import extract_item_metadata, discover_campaigns, discover_flight_lines
 from .build import (
@@ -21,6 +26,8 @@ from .build import (
 )
 
 __all__ = [
+    # Configuration
+    "CatalogConfig",
     # Catalog functions
     "create_catalog",
     "create_collection", 
