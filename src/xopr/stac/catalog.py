@@ -53,6 +53,13 @@ def create_catalog(
     -------
     pystac.Catalog
         Root catalog object.
+        
+    Examples
+    --------
+    >>> catalog = create_catalog("MyOPR", "My Open Polar Radar data")
+    >>> collection = create_collection("2016_Antarctica", "2016 flights", extent)
+    >>> catalog.add_child(collection)
+    >>> catalog.save("./output")
     """
     if stac_extensions is None:
         stac_extensions = [
@@ -99,6 +106,18 @@ def create_collection(
     -------
     pystac.Collection
         Collection object.
+        
+    Examples
+    --------
+    >>> from datetime import datetime
+    >>> import pystac
+    >>> extent = pystac.Extent(
+    ...     spatial=pystac.SpatialExtent([[-180, -90, 180, 90]]),
+    ...     temporal=pystac.TemporalExtent([[datetime(2016, 1, 1), datetime(2016, 12, 31)]])
+    ... )
+    >>> collection = create_collection("2016_campaign", "2016 Antarctic flights", extent)
+    >>> item = create_item("item_001", geometry, bbox, datetime.now())
+    >>> collection.add_item(item)
     """
     if stac_extensions is None:
         stac_extensions = []
@@ -157,6 +176,18 @@ def create_item(
     -------
     pystac.Item
         Item object with specified properties and assets.
+        
+    Examples
+    --------
+    >>> from datetime import datetime
+    >>> import pystac
+    >>> geometry = {"type": "Point", "coordinates": [-71.0, 42.0]}
+    >>> bbox = [-71.1, 41.9, -70.9, 42.1]
+    >>> props = {"instrument": "radar", "platform": "aircraft"}
+    >>> assets = {
+    ...     "data": pystac.Asset(href="https://example.com/data.mat", media_type="application/octet-stream")
+    ... }
+    >>> item = create_item("flight_001", geometry, bbox, datetime.now(), props, assets)
     """
     if properties is None:
         properties = {}
@@ -628,7 +659,6 @@ def build_flat_collection(
         print(f"Added flattened campaign collection {campaign_name} with {len(all_campaign_items)} total items (no flight collections)")
     
     # Export to parquet and return the path (not the collection) to avoid memory accumulation
-    from .build import export_collection_to_parquet
     parquet_path = export_collection_to_parquet(campaign_collection, config.output_dir, config.verbose)
     
     if not parquet_path:
@@ -636,6 +666,103 @@ def build_flat_collection(
     
     return parquet_path
 
+
+def export_collection_to_parquet(
+    collection: pystac.Collection,
+    output_dir: Path,
+    verbose: bool = False
+) -> Optional[Path]:
+    """
+    Export a single STAC collection to a parquet file with collection metadata.
+    
+    This function directly converts STAC items to GeoParquet format without
+    intermediate NDJSON, and includes the collection metadata in the Parquet
+    file metadata as per the STAC GeoParquet specification.
+    
+    Parameters
+    ----------
+    collection : pystac.Collection
+        STAC collection to export
+    output_dir : Path
+        Output directory for the parquet file
+    verbose : bool, optional
+        If True, print progress messages
+        
+    Returns
+    -------
+    Path or None
+        Path to the created parquet file, or None if no items to export
+        
+    Examples
+    --------
+    >>> collection = build_flat_collection(campaign, data_root, config)
+    >>> parquet_path = export_collection_to_parquet(collection, Path('output/'))
+    >>> print(f"Exported to {parquet_path}")
+    """
+    # Get items from collection and subcollections
+    collection_items = list(collection.get_items())
+    if not collection_items:
+        for child_collection in collection.get_collections():
+            collection_items.extend(list(child_collection.get_items()))
+    
+    if not collection_items:
+        if verbose:
+            print(f"  Skipping {collection.id}: no items")
+        return None
+    
+    # Ensure output directory exists
+    output_dir.mkdir(parents=True, exist_ok=True)
+    
+    # Export to parquet
+    parquet_file = output_dir / f"{collection.id}.parquet"
+    
+    if verbose:
+        print(f"  Exporting collection: {collection.id} ({len(collection_items)} items)")
+    
+    # Build collections metadata - single collection in this case
+    collection_dict = collection.to_dict()
+    # Clean collection links - remove item links with None hrefs
+    if 'links' in collection_dict:
+        collection_dict['links'] = [
+            link for link in collection_dict['links']
+            if not (link.get('rel') == 'item' and link.get('href') is None)
+        ]
+    collections_dict = {
+        collection.id: collection_dict
+    }
+    
+    # Clean items before export - remove links with None hrefs
+    # These are added by PySTAC when items are added to collections but have no physical location
+    clean_items = []
+    for item in collection_items:
+        item_dict = item.to_dict()
+        if 'links' in item_dict:
+            item_dict['links'] = [
+                link for link in item_dict['links']
+                if link.get('href') is not None
+            ]
+        clean_items.append(item_dict)
+    
+    # Convert items to Arrow format
+    record_batch_reader = stac_geoparquet.arrow.parse_stac_items_to_arrow(clean_items)
+    
+    # Write to Parquet with collection metadata
+    # Note: Using collection_metadata for compatibility with stac-geoparquet 0.7.0
+    # In newer versions (>0.8), this should be 'collections' parameter
+    stac_geoparquet.arrow.to_parquet(
+        table=record_batch_reader,
+        output_path=parquet_file,
+        collection_metadata=collection_dict,  # Single collection metadata (cleaned)
+        schema_version="1.1.0",  # Use latest schema version
+        compression="snappy",  # Use snappy compression for better performance
+        write_statistics=True  # Write column statistics for query optimization
+    )
+    
+    if verbose:
+        size_kb = parquet_file.stat().st_size / 1024
+        print(f"  ✅ {collection.id}.parquet saved ({size_kb:.1f} KB)")
+    
+    return parquet_file
 
 
 def build_catalog_from_parquet_files(

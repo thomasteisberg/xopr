@@ -14,6 +14,7 @@ import shapely
 from shapely.geometry import LineString, Point, box
 
 from xopr.opr_access import OPRConnection
+from .geometry import simplify_geometry_polar_projection
 
 
 
@@ -94,8 +95,7 @@ def extract_item_metadata(mat_file_path: Union[str, Path] = None,
                                                ds['Latitude'].values)))
     line = LineString(geom_series.tolist())
     
-    # Import and use unified polar projection simplification
-    from .catalog import simplify_geometry_polar_projection
+    # Use unified polar projection simplification
     line = simplify_geometry_polar_projection(line, simplify_tolerance=100.0)
     
     bounds = shapely.bounds(line)
