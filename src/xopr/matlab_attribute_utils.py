@@ -36,10 +36,38 @@ def decode_hdf5_matlab_variable(h5var, skip_variables=False, debug_path="", skip
         h5file = h5var.file
     matlab_class = h5var.attrs.get('MATLAB_class', None)
     
-    if matlab_class and matlab_class == b'cell':
+    # Handle MATLAB_class as either bytes or string
+    if matlab_class and (matlab_class == b'cell' or matlab_class == 'cell'):
         return dereference_h5value(h5var[:], h5file=h5file, make_array=False)
-    elif matlab_class and matlab_class == b'char':
-        return h5var[:].astype(dtype=np.uint8).tobytes().decode('utf-8')
+    elif matlab_class and (matlab_class == b'char' or matlab_class == 'char'):
+        # Check if this is an empty MATLAB char array
+        if h5var.attrs.get('MATLAB_empty', 0):
+            return ''
+        
+        # MATLAB stores char arrays as uint16 (Unicode code points)
+        # or sometimes uint8 (ASCII). Handle both cases properly.
+        data = h5var[:]
+        
+        if data.dtype == np.dtype('uint16'):
+            # Each uint16 value is a Unicode code point (UCS-2/UTF-16)
+            # Convert to string by treating each value as a character code
+            chars = [chr(c) for c in data.flatten() if c != 0]
+            return ''.join(chars).rstrip()
+        elif data.dtype == np.dtype('uint8'):
+            # uint8 data can be decoded directly as UTF-8
+            return data.tobytes().decode('utf-8').rstrip('\x00')
+        else:
+            # Fallback for unexpected dtypes (including uint64 for empty arrays)
+            # First check if it's all zeros (empty string)
+            if np.all(data == 0):
+                return ''
+            # Try the old method that may work for some cases
+            try:
+                return data.astype(dtype=np.uint8).tobytes().decode('utf-8').rstrip('\x00')
+            except UnicodeDecodeError:
+                # If that fails, try to convert assuming Unicode code points
+                chars = [chr(min(c, 0x10FFFF)) for c in data.flatten() if c != 0]
+                return ''.join(chars).rstrip()
     elif isinstance(h5var, (h5py.Group, h5py.File)):
         attrs = {}
         for k in h5var:
