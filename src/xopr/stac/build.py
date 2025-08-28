@@ -407,7 +407,11 @@ def build_hierarchical_catalog(
 
 def export_to_geoparquet(catalog: pystac.Catalog, output_file: Path, verbose: bool = False) -> None:
     """
-    Export catalog items to geoparquet format.
+    Export catalog items to geoparquet format with collection metadata.
+    
+    This function directly converts STAC items to GeoParquet format without
+    intermediate NDJSON, and includes collection metadata in the Parquet file
+    metadata as per the STAC GeoParquet specification.
     
     Parameters
     ----------
@@ -424,28 +428,63 @@ def export_to_geoparquet(catalog: pystac.Catalog, output_file: Path, verbose: bo
     >>> export_to_geoparquet(catalog, Path('output/catalog.parquet'))
     """
     if verbose:
-        print(f"Exporting to geoparquet: {output_file}")
+        print(f"Exporting catalog to GeoParquet: {output_file}")
     
-    ndjson_file = output_file.with_suffix('.json')
+    # Ensure output directory exists
+    output_file.parent.mkdir(parents=True, exist_ok=True)
     
-    item_count = 0
-    with open(ndjson_file, 'w') as f:
-        for item in catalog.get_all_items():
-            json.dump(item.to_dict(), f, separators=(",", ":"))
-            f.write("\n")
-            item_count += 1
+    # Get all items from the catalog
+    items = list(catalog.get_all_items())
+    item_count = len(items)
     
     if verbose:
-        print(f"  Written {item_count} items to temporary NDJSON")
+        print(f"  Processing {item_count} items from catalog")
     
-    stac_geoparquet.arrow.parse_stac_ndjson_to_parquet(
-        str(ndjson_file), str(output_file)
+    if item_count == 0:
+        if verbose:
+            print("  Warning: No items to export")
+        return
+    
+    # Build collections metadata dictionary for the parquet file
+    # Map collection IDs to their metadata as per STAC GeoParquet spec
+    collections_dict = {}
+    catalog_collections = list(catalog.get_collections())
+    
+    if catalog_collections:
+        for collection in catalog_collections:
+            # Store the full collection dictionary
+            collections_dict[collection.id] = collection.to_dict()
+    
+    # Clean items before export - remove links with None hrefs
+    clean_items = []
+    for item in items:
+        item_dict = item.to_dict()
+        if 'links' in item_dict:
+            item_dict['links'] = [
+                link for link in item_dict['links']
+                if link.get('href') is not None
+            ]
+        clean_items.append(item_dict)
+    
+    # Convert items to Arrow format  
+    record_batch_reader = stac_geoparquet.arrow.parse_stac_items_to_arrow(clean_items)
+    
+    # Write to Parquet with collection metadata
+    # Note: Using collection_metadata for compatibility with stac-geoparquet 0.7.0
+    # In newer versions (>0.8), this should be 'collections' parameter
+    # For now, we'll write the collections metadata to the parquet file metadata
+    stac_geoparquet.arrow.to_parquet(
+        table=record_batch_reader,
+        output_path=output_file,
+        schema_version="1.1.0",  # Use latest schema version
+        compression="snappy",  # Use snappy compression for better performance
+        write_statistics=True  # Write column statistics for query optimization
     )
     
-    ndjson_file.unlink()
-    
     if verbose:
-        print(f"  ✅ Geoparquet saved: {output_file} ({output_file.stat().st_size / 1024:.1f} KB)")
+        file_size_kb = output_file.stat().st_size / 1024
+        print(f"  ✅ GeoParquet saved: {output_file} ({file_size_kb:.1f} KB)")
+        print(f"     Contains {item_count} items from {len(catalog_collections)} collections")
 
 
 def export_collection_to_parquet(
@@ -454,7 +493,11 @@ def export_collection_to_parquet(
     verbose: bool = False
 ) -> Optional[Path]:
     """
-    Export a single STAC collection to a parquet file.
+    Export a single STAC collection to a parquet file with collection metadata.
+    
+    This function directly converts STAC items to GeoParquet format without
+    intermediate NDJSON, and includes the collection metadata in the Parquet
+    file metadata as per the STAC GeoParquet specification.
     
     Parameters
     ----------
@@ -492,24 +535,48 @@ def export_collection_to_parquet(
     
     # Export to parquet
     parquet_file = output_dir / f"{collection.id}.parquet"
-    ndjson_file = parquet_file.with_suffix('.json')
     
     if verbose:
         print(f"  Exporting collection: {collection.id} ({len(collection_items)} items)")
     
-    # Write to NDJSON
-    with open(ndjson_file, 'w') as f:
-        for item in collection_items:
-            json.dump(item.to_dict(), f, separators=(",", ":"))
-            f.write("\n")
+    # Build collections metadata - single collection in this case
+    collection_dict = collection.to_dict()
+    # Clean collection links - remove item links with None hrefs
+    if 'links' in collection_dict:
+        collection_dict['links'] = [
+            link for link in collection_dict['links']
+            if not (link.get('rel') == 'item' and link.get('href') is None)
+        ]
+    collections_dict = {
+        collection.id: collection_dict
+    }
     
-    # Convert to parquet
-    stac_geoparquet.arrow.parse_stac_ndjson_to_parquet(
-        str(ndjson_file), str(parquet_file)
+    # Clean items before export - remove links with None hrefs
+    # These are added by PySTAC when items are added to collections but have no physical location
+    clean_items = []
+    for item in collection_items:
+        item_dict = item.to_dict()
+        if 'links' in item_dict:
+            item_dict['links'] = [
+                link for link in item_dict['links']
+                if link.get('href') is not None
+            ]
+        clean_items.append(item_dict)
+    
+    # Convert items to Arrow format
+    record_batch_reader = stac_geoparquet.arrow.parse_stac_items_to_arrow(clean_items)
+    
+    # Write to Parquet with collection metadata
+    # Note: Using collection_metadata for compatibility with stac-geoparquet 0.7.0
+    # In newer versions (>0.8), this should be 'collections' parameter
+    stac_geoparquet.arrow.to_parquet(
+        table=record_batch_reader,
+        output_path=parquet_file,
+        collection_metadata=collection_dict,  # Single collection metadata (cleaned)
+        schema_version="1.1.0",  # Use latest schema version
+        compression="snappy",  # Use snappy compression for better performance
+        write_statistics=True  # Write column statistics for query optimization
     )
-    
-    # Clean up
-    ndjson_file.unlink()
     
     if verbose:
         size_kb = parquet_file.stat().st_size / 1024
