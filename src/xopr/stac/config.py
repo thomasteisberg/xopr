@@ -5,6 +5,7 @@ This module provides configuration objects that encapsulate common parameters
 used across catalog building functions, reducing repetition and improving maintainability.
 """
 
+import copy
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import List, Optional
@@ -115,7 +116,6 @@ class CatalogConfig:
         >>> test_config = base_config.copy_with(max_items=10)
         >>> parallel_config = base_config.copy_with(n_workers=4)
         """
-        import copy
         config_dict = copy.deepcopy(self.__dict__)
         config_dict.update(kwargs)
         return CatalogConfig(**config_dict)
