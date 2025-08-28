@@ -3,10 +3,12 @@ STAC catalog creation utilities for Open Polar Radar data.
 """
 
 import re
+import json
 from pathlib import Path
 from typing import List, Optional, Dict, Any, Union
 
 import numpy as np
+import pyarrow.parquet as pq
 import pystac
 import stac_geoparquet
 from dask.distributed import LocalCluster, Client
@@ -310,17 +312,6 @@ def create_items_from_flight_data(
         items.append(item)
     
     return items
-
-
-
-
-
-
-
-
-
-
-
 
 def build_limited_catalog(
     data_root: Path,
@@ -694,13 +685,45 @@ def build_catalog_from_parquet_files(
     
     for parquet_path in parquet_paths:
         try:
-            # Load the collection from parquet using stac_geoparquet
-            # Returns a list but we know there's only one collection per file
-            collection = stac_geoparquet.load_collections(str(parquet_path))[0]
+            # Get collection metadata from parquet file metadata (without reading the data)
+            parquet_metadata = pq.read_metadata(str(parquet_path))
+            file_metadata = parquet_metadata.metadata
+            
+            # Check if collections metadata is in the file metadata
+            # For stac-geoparquet 0.7.0, check for 'stac-geoparquet' key
+            collection_dict = None
+            if file_metadata:
+                # Try new format first (for future compatibility)
+                if b'stac:collections' in file_metadata:
+                    collections_json = file_metadata[b'stac:collections'].decode('utf-8')
+                    collections_data = json.loads(collections_json)
+                    # Get the first (and should be only) collection
+                    if collections_data:
+                        collection_id = list(collections_data.keys())[0]
+                        collection_dict = collections_data[collection_id]
+                # Try legacy format used by stac-geoparquet 0.7.0
+                elif b'stac-geoparquet' in file_metadata:
+                    geoparquet_meta = json.loads(file_metadata[b'stac-geoparquet'].decode('utf-8'))
+                    if 'collection' in geoparquet_meta:
+                        collection_dict = geoparquet_meta['collection']
+            
+            if not collection_dict:
+                raise ValueError(
+                    f"No STAC collection metadata found in parquet file: {parquet_path.name}. "
+                    f"The parquet file must include collection metadata in the 'stac:collections' "
+                    f"field of the file metadata."
+                )
+            
+            # Reconstruct collection from metadata (without items - they stay in parquet)
+            collection = pystac.Collection.from_dict(collection_dict)
+            
+            # Add collection to catalog (items remain in parquet file)
             catalog.add_child(collection)
             
             if config.verbose:
-                print(f"  ✅ Added collection: {collection.id} from {parquet_path.name}")
+                # Get row count from metadata without reading the table
+                num_rows = parquet_metadata.num_rows
+                print(f"  ✅ Added collection: {collection.id} from {parquet_path.name} ({num_rows} items in parquet)")
                     
         except Exception as e:
             if config.verbose:
@@ -792,12 +815,14 @@ def build_flat_catalog_dask(
         
         # Submit campaign processing tasks - will return parquet paths
         futures_to_campaigns = {}
+        # Create a config for workers with verbose=False to reduce noise
+        worker_config = config.copy_with(verbose=False)
         for campaign in campaigns:
             future = client.submit(
                 build_flat_collection,
                 campaign=campaign,
                 data_root=data_root,
-                config=config
+                config=worker_config
             )
             futures_to_campaigns[future] = campaign
             

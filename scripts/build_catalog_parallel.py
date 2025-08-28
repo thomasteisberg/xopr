@@ -13,6 +13,7 @@ import time
 from pathlib import Path
 from typing import List, Dict, Any, Optional
 
+import pyarrow.parquet as pq
 from dask.distributed import Client, as_completed
 
 from xopr.stac import discover_campaigns, create_catalog, build_flat_catalog_dask
@@ -474,11 +475,26 @@ def main():
         
         # Count collections and items
         collections = list(catalog.get_collections())
-        total_items = sum(1 for _ in catalog.get_all_items())
+        
+        # For flat parquet catalogs, items are in parquet files, not in memory
+        if args.flat_parquet:
+            # Count items from parquet files
+            total_items = 0
+            for parquet_file in args.output_dir.glob("*.parquet"):
+                if parquet_file.name != f"{args.catalog_id.lower()}.parquet":
+                    # Skip the main catalog parquet if it exists
+                    try:
+                        metadata = pq.read_metadata(str(parquet_file))
+                        total_items += metadata.num_rows
+                    except:
+                        pass
+        else:
+            # For hierarchical catalogs, items are in the catalog structure
+            total_items = sum(1 for _ in catalog.get_all_items())
         
         print(f"   Catalog structure: {'Flat (no flight collections)' if args.flat_parquet else 'Hierarchical'}")
         print(f"   Campaigns processed: {len(collections)}")
-        print(f"   Total items: {total_items}")
+        print(f"   Total items: {total_items} {'(in parquet files)' if args.flat_parquet else ''}")
         
         # Count flights per campaign (only for hierarchical)
         if not args.flat_parquet:

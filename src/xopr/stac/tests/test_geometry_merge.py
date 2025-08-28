@@ -27,12 +27,14 @@ class TestMergeItemGeometries:
             "type": "LineString",
             "coordinates": [[-45.0, -70.0], [-46.0, -71.0], [-47.0, -72.0]]
         }
+        item1.properties = {}  # Add properties attribute
         
         item2 = Mock(spec=pystac.Item)
         item2.geometry = {
             "type": "LineString", 
             "coordinates": [[-47.0, -72.0], [-48.0, -73.0], [-49.0, -74.0]]
         }
+        item2.properties = {}  # Add properties attribute
         
         items = [item1, item2]
         
@@ -52,12 +54,14 @@ class TestMergeItemGeometries:
             "type": "LineString",
             "coordinates": [[-45.0, 70.0], [-46.0, 71.0], [-47.0, 72.0]]
         }
+        item1.properties = {}  # Add properties attribute
         
         item2 = Mock(spec=pystac.Item)
         item2.geometry = {
             "type": "LineString", 
             "coordinates": [[-47.0, 72.0], [-48.0, 73.0], [-49.0, 74.0]]
         }
+        item2.properties = {}  # Add properties attribute
         
         items = [item1, item2]
         
@@ -78,9 +82,11 @@ class TestMergeItemGeometries:
         """Test merging items that have no geometry."""
         item1 = Mock(spec=pystac.Item)
         item1.geometry = None
+        item1.properties = {}  # Add properties attribute
         
         item2 = Mock(spec=pystac.Item)
         item2.geometry = None
+        item2.properties = {}  # Add properties attribute
         
         result = merge_item_geometries([item1, item2])
         assert result is None
@@ -92,6 +98,7 @@ class TestMergeItemGeometries:
             "type": "LineString",
             "coordinates": [[-45.0, -70.0], [-46.0, -71.0], [-47.0, -72.0]]
         }
+        item1.properties = {}  # Add properties attribute
         
         # Test with different tolerance
         result = merge_item_geometries([item1], simplify_tolerance=50.0)
@@ -182,6 +189,7 @@ class TestBuildCollectionExtentAndGeometry:
         }
         item1.bbox = [-46.0, -71.0, -45.0, -70.0]
         item1.datetime = datetime(2023, 1, 1, 12, 0, 0)
+        item1.properties = {}  # Add properties attribute
         
         item2 = Mock(spec=pystac.Item)
         item2.geometry = {
@@ -190,6 +198,7 @@ class TestBuildCollectionExtentAndGeometry:
         }
         item2.bbox = [-48.0, -73.0, -47.0, -72.0]
         item2.datetime = datetime(2023, 1, 2, 12, 0, 0)
+        item2.properties = {}  # Add properties attribute
         
         items = [item1, item2]
         
