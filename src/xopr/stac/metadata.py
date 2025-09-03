@@ -17,6 +17,40 @@ from xopr.opr_access import OPRConnection
 from .geometry import simplify_geometry_polar_projection
 
 
+def find_radar_wfs_params(ds):
+    """
+    Find radar WFS parameters from dataset using common locations.
+    
+    Parameters  
+    ----------
+    ds : xarray.Dataset
+        Dataset to search
+        
+    Returns
+    -------
+    dict or list
+        WFS parameter data
+    """
+    # Define search paths in order of preference
+    search_paths = [
+        lambda: ds.param_records['radar']['wfs'],
+        lambda: ds.param_csarp['radar']['wfs'], 
+        lambda: ds.param_radar['wfs'],
+        lambda: ds.radar_params['wfs'],
+        lambda: ds.params['radar']['wfs'],
+    ]
+    
+    for get_params in search_paths:
+        try:
+            return get_params()
+        except (KeyError, AttributeError):
+            continue
+    
+    # If all fail, provide helpful error
+    available = [attr for attr in dir(ds) if 'param' in attr.lower()]
+    raise KeyError(f"Radar WFS parameters not found. Available param attributes: {available}")
+
+
 def extract_stable_wfs_params(wfs_data: Union[Dict, List[Dict]]) -> Dict:
     """
     Extract stable parameters from wfs data structure.
@@ -135,13 +169,7 @@ def extract_item_metadata(mat_file_path: Union[str, Path] = None,
     boundingbox = box(bounds[0], bounds[1], bounds[2], bounds[3])
 
     # Radar params
-    try:
-        stable_wfs = extract_stable_wfs_params(ds.param_records['radar']['wfs'])
-    except KeyError as e:
-        if str(e) == "'radar'":
-            stable_wfs = extract_stable_wfs_params(ds.param_csarp['radar']['wfs'])
-        else:
-            raise
+    stable_wfs = extract_stable_wfs_params(find_radar_wfs_params(ds))
 
     low_freq_array = stable_wfs['f0']
     high_freq_array = stable_wfs['f1']
