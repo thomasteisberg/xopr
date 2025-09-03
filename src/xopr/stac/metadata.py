@@ -135,7 +135,14 @@ def extract_item_metadata(mat_file_path: Union[str, Path] = None,
     boundingbox = box(bounds[0], bounds[1], bounds[2], bounds[3])
 
     # Radar params
-    stable_wfs = extract_stable_wfs_params(ds.param_records['radar']['wfs'])
+    try:
+        stable_wfs = extract_stable_wfs_params(ds.param_records['radar']['wfs'])
+    except KeyError as e:
+        if str(e) == "'radar'":
+            stable_wfs = extract_stable_wfs_params(ds.param_csarp['radar']['wfs'])
+        else:
+            raise
+
     low_freq_array = stable_wfs['f0']
     high_freq_array = stable_wfs['f1']
     
