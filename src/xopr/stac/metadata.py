@@ -17,6 +17,39 @@ from xopr.opr_access import OPRConnection
 from .geometry import simplify_geometry_polar_projection
 
 
+def extract_stable_wfs_params(wfs_data: Union[Dict, List[Dict]]) -> Dict:
+    """
+    Extract stable parameters from wfs data structure.
+    
+    Parameters
+    ----------
+    wfs_data : Union[Dict, List[Dict]]
+        WFS data that can be either a dictionary or list of dictionaries.
+        
+    Returns
+    -------
+    Dict
+        Dictionary containing only parameters with identical values across 
+        all entries (if list) or all parameters (if single dict).
+    """
+    if isinstance(wfs_data, dict):
+        return wfs_data
+    
+    if not wfs_data:
+        return {}
+    
+    common_keys = set(wfs_data[0].keys())
+    for item in wfs_data[1:]:
+        common_keys &= set(item.keys())
+    
+    stable_params = {}
+    for key in common_keys:
+        values = [item[key] for item in wfs_data]
+        if len(set(map(str, values))) == 1:
+            stable_params[key] = values[0]
+    
+    return stable_params
+
 
 def extract_item_metadata(mat_file_path: Union[str, Path] = None, 
                          dataset=None) -> Dict[str, Any]:
@@ -102,8 +135,9 @@ def extract_item_metadata(mat_file_path: Union[str, Path] = None,
     boundingbox = box(bounds[0], bounds[1], bounds[2], bounds[3])
 
     # Radar params
-    low_freq_array = ds.param_records['radar']['wfs']['f0']
-    high_freq_array = ds.param_records['radar']['wfs']['f1']
+    stable_wfs = extract_stable_wfs_params(ds.param_records['radar']['wfs'])
+    low_freq_array = stable_wfs['f0']
+    high_freq_array = stable_wfs['f1']
     
     # Check for unique values and extract scalar
     unique_low_freq = np.unique(low_freq_array)
