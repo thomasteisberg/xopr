@@ -2,10 +2,11 @@
 
 import numpy as np
 import pytest
-from unittest.mock import Mock, patch
+from unittest.mock import Mock, MagicMock, patch
 from pathlib import Path
+from shapely.geometry import LineString
 
-from xopr.stac.metadata import extract_item_metadata
+from xopr.stac.metadata import extract_stable_wfs_params, extract_item_metadata
 from .common import create_mock_dataset, TEST_DOI, TEST_ROR, TEST_FUNDER
 
 
@@ -243,3 +244,91 @@ class TestExtractItemMetadataWithRealData:
         frequencies = [r['frequency'] for r in results]
         assert len(set(frequencies)) >= 1  # At least some variation
         assert all(50e6 <= f <= 1000e6 for f in frequencies)
+
+class TestExtractStableWfsParams:
+    """Test cases for extract_stable_wfs_params function."""
+
+    def test_single_dict_passthrough(self):
+        """Test that single dictionary is returned unchanged."""
+        input_dict = {'f0': 200000000, 'f1': 450000000, 'param': 'value'}
+        result = extract_stable_wfs_params(input_dict)
+        assert result == input_dict
+
+    def test_empty_list(self):
+        """Test that empty list returns empty dict."""
+        result = extract_stable_wfs_params([])
+        assert result == {}
+
+    def test_list_with_identical_values(self):
+        """Test list where all dictionaries have identical values."""
+        input_list = [
+            {'f0': 200000000, 'f1': 450000000, 'param': 'stable'},
+            {'f0': 200000000, 'f1': 450000000, 'param': 'stable'},
+            {'f0': 200000000, 'f1': 450000000, 'param': 'stable'}
+        ]
+        expected = {'f0': 200000000, 'f1': 450000000, 'param': 'stable'}
+        result = extract_stable_wfs_params(input_list)
+        assert result == expected
+
+    def test_list_with_mixed_stable_unstable_values(self):
+        """Test list where some values are stable and others vary."""
+        input_list = [
+            {'f0': 200000000, 'f1': 450000000, 'variable': 'a', 'unstable': 1},
+            {'f0': 300000000, 'f1': 450000000, 'variable': 'b', 'unstable': 2},
+            {'f0': 200000000, 'f1': 450000000, 'variable': 'c', 'unstable': 3}
+        ]
+        expected = {'f1': 450000000}  # Only f1 is stable across all items
+        result = extract_stable_wfs_params(input_list)
+        assert result == expected
+
+    def test_single_item_list(self):
+        """Test list with single dictionary."""
+        input_list = [{'f0': 200000000, 'f1': 450000000}]
+        expected = {'f0': 200000000, 'f1': 450000000}
+        result = extract_stable_wfs_params(input_list)
+        assert result == expected
+
+
+class TestExtractItemMetadataIntegration:
+    """Integration tests for extract_item_metadata function."""
+
+    @patch('xopr.stac.metadata.OPRConnection')
+    def test_extract_item_metadata_with_list_wfs(self, mock_opr_class):
+        """Test that extract_item_metadata works with list-type wfs data."""
+        # Mock the dataset structure
+        mock_ds = MagicMock()
+        mock_ds.param_records = {
+            'radar': {
+                'wfs': [
+                    {'f0': np.array([200000000]), 'f1': np.array([450000000])},
+                    {'f0': np.array([200000000]), 'f1': np.array([450000000])},
+                    {'f0': np.array([200000000]), 'f1': np.array([450000000])}
+                ]
+            }
+        }
+        mock_ds.__getitem__.side_effect = lambda key: {
+            'slow_time': Mock(mean=Mock(return_value=Mock(values=np.datetime64('2014-01-08T12:00:00')))),
+            'Longitude': Mock(values=np.array([-45.0, -45.1, -45.2])),
+            'Latitude': Mock(values=np.array([70.0, 70.1, 70.2]))
+        }[key]
+        mock_ds.attrs = {'mimetype': 'application/x-hdf5', 'doi': None, 'ror': None, 'funder_text': None}
+
+        # Mock OPRConnection
+        mock_opr = Mock()
+        mock_opr.load_frame_url.return_value = mock_ds
+        mock_opr_class.return_value = mock_opr
+
+        # Test the function
+        with patch('xopr.stac.metadata.simplify_geometry_polar_projection') as mock_simplify:
+            # Return a proper LineString geometry
+            mock_simplify.return_value = LineString([(-45.0, 70.0), (-45.1, 70.1), (-45.2, 70.2)])
+
+            result = extract_item_metadata("https://fake.url/test.mat")
+
+            # Verify the function completed without errors
+            assert result is not None
+            assert 'frequency' in result
+            assert 'bandwidth' in result
+
+        # Verify that load_frame_url was called
+        mock_opr.load_frame_url.assert_called_once_with("https://fake.url/test.mat")
