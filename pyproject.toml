@@ -31,6 +31,8 @@ stac = [
     "stac_asset",
     "stac-geoparquet",
     "stac-fastapi-geoparquet[serve]",
+    "omegaconf",
+    "pyarrow",
 ]
 docs = [
     "jupyter-book>=2.0.0a0",
