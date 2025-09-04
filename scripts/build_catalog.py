@@ -121,7 +121,7 @@ def build_collection_parallel(campaign_path: Path, conf: DictConfig) -> Optional
     output_dir.mkdir(parents=True, exist_ok=True)
     
     parquet_path = export_collection_to_parquet(
-        collection, output_dir, conf.logging.verbose, conf
+        collection, conf
     )
     
     print(f"  ✅ {len(all_items)} items → {parquet_path.name}")

@@ -639,8 +639,9 @@ def build_flat_collection(
     if not all_campaign_items:
         raise ValueError(f"No valid items found for {campaign_name}")
 
-    # Create campaign collection with bbox-only extent (no geometry)
-    campaign_extent = build_collection_extent(all_campaign_items)
+    # Create campaign collection with extent and aggregated geometry
+    # Use build_collection_extent_and_geometry to get both extent and merged geometry
+    campaign_extent, campaign_geometry = build_collection_extent_and_geometry(all_campaign_items)
     
     # Collect metadata from all campaign items
     campaign_extensions, campaign_extra_fields = collect_uniform_metadata(
@@ -648,7 +649,7 @@ def build_flat_collection(
         ['sci:doi', 'sci:citation', 'sar:center_frequency', 'sar:bandwidth']
     )
 
-    # Create campaign collection with NO geometry field at all
+    # Create campaign collection with aggregated geometry
     campaign_collection = create_collection(
         collection_id=campaign_name,
         description=(
@@ -658,8 +659,8 @@ def build_flat_collection(
         extent=campaign_extent,
         stac_extensions=(
             campaign_extensions if campaign_extensions else None
-        )
-        # Note: no geometry parameter - bbox-only for parquet compatibility
+        ),
+        geometry=campaign_geometry  # Now including the aggregated geometry
     )
 
     # Add scientific extra fields to campaign collection
@@ -673,8 +674,7 @@ def build_flat_collection(
         print(f"Added flattened campaign collection {campaign_name} with {len(all_campaign_items)} total items (no flight collections)")
     
     # Export to parquet and return the path (not the collection) to avoid memory accumulation
-    output_dir = Path(config.output.path)
-    parquet_path = export_collection_to_parquet(campaign_collection, output_dir, verbose, config)
+    parquet_path = export_collection_to_parquet(campaign_collection, config)
     
     if not parquet_path:
         raise ValueError(f"Failed to write parquet file for campaign {campaign_name}")
@@ -684,8 +684,7 @@ def build_flat_collection(
 
 def export_collection_to_parquet(
     collection: pystac.Collection,
-    output_dir: Path,
-    verbose: bool = False
+    config: DictConfig
 ) -> Optional[Path]:
     """
     Export a single STAC collection to a parquet file with collection metadata.
@@ -698,10 +697,8 @@ def export_collection_to_parquet(
     ----------
     collection : pystac.Collection
         STAC collection to export
-    output_dir : Path
-        Output directory for the parquet file
-    verbose : bool, optional
-        If True, print progress messages
+    config : DictConfig
+        Configuration object with output.path and logging.verbose settings
         
     Returns
     -------
@@ -710,10 +707,15 @@ def export_collection_to_parquet(
         
     Examples
     --------
-    >>> collection = build_flat_collection(campaign, data_root, config)
-    >>> parquet_path = export_collection_to_parquet(collection, Path('output/'))
+    >>> from omegaconf import OmegaConf
+    >>> config = OmegaConf.create({'output': {'path': './output'}, 'logging': {'verbose': True}})
+    >>> parquet_path = export_collection_to_parquet(collection, config)
     >>> print(f"Exported to {parquet_path}")
     """
+    # Extract settings from config
+    output_dir = Path(config.output.path)
+    verbose = config.logging.get('verbose', False)
+    
     # Get items from collection and subcollections
     collection_items = list(collection.get_items())
     if not collection_items:
@@ -782,9 +784,7 @@ def export_collection_to_parquet(
 
 def build_catalog_from_parquet_files(
     parquet_paths: List[Path],
-    catalog_id: str = "OPR",
-    catalog_description: str = "Open Polar Radar airborne data",
-    config: Optional[CatalogConfig] = None
+    config: DictConfig
 ) -> pystac.Catalog:
     """
     Build a STAC catalog from existing parquet files.
@@ -797,12 +797,9 @@ def build_catalog_from_parquet_files(
     ----------
     parquet_paths : List[Path]
         List of paths to parquet files (one collection per file)
-    catalog_id : str, optional
-        Catalog ID, by default "OPR"
-    catalog_description : str, optional
-        Catalog description, by default "Open Polar Radar airborne data"
-    config : CatalogConfig, optional
-        Configuration object with catalog parameters. If None, uses defaults.
+    config : DictConfig
+        Configuration object with output.catalog_id, output.catalog_description,
+        and logging.verbose settings
 
     Returns
     -------
@@ -811,13 +808,20 @@ def build_catalog_from_parquet_files(
         
     Examples
     --------
+    >>> from omegaconf import OmegaConf
     >>> parquet_files = list(Path('./output').glob("*.parquet"))
-    >>> catalog = build_catalog_from_parquet_files(
-    ...     parquet_files, config=CatalogConfig(verbose=True)
-    ... )
+    >>> config = OmegaConf.create({
+    ...     'output': {'catalog_id': 'OPR', 'catalog_description': 'Open Polar Radar data'},
+    ...     'logging': {'verbose': True}
+    ... })
+    >>> catalog = build_catalog_from_parquet_files(parquet_files, config)
     """
-    catalog = create_catalog(catalog_id=catalog_id, description=catalog_description)
+    # Extract settings from config
+    catalog_id = config.output.get('catalog_id', 'OPR')
+    catalog_description = config.output.get('catalog_description', 'Open Polar Radar airborne data')
+    verbose = config.logging.get('verbose', False)
     
+    catalog = create_catalog(catalog_id=catalog_id, description=catalog_description)
     if verbose:
         print(f"Building catalog from {len(parquet_paths)} parquet files")
     
@@ -858,15 +862,13 @@ def build_catalog_from_parquet_files(
             # Add collection to catalog (items remain in parquet file)
             catalog.add_child(collection)
             
-            verbose = config.logging.get('verbose', False)
-        if verbose:
+            if verbose:
                 # Get row count from metadata without reading the table
                 num_rows = parquet_metadata.num_rows
                 print(f"  ✅ Added collection: {collection.id} from {parquet_path.name} ({num_rows} items in parquet)")
                     
         except Exception as e:
-            verbose = config.logging.get('verbose', False)
-        if verbose:
+            if verbose:
                 print(f"  ❌ Failed to process {parquet_path.name}: {e}")
             continue
     
@@ -877,14 +879,7 @@ def build_catalog_from_parquet_files(
     return catalog
 
 
-def build_flat_catalog_dask(
-    data_root: Path,
-    output_path: Path,
-    catalog_id: str = "OPR",
-    catalog_description: str = "Open Polar Radar airborne data",
-    campaign_filter: list = None,
-    config: DictConfig
-) -> pystac.Catalog:
+def build_flat_catalog_dask(config: DictConfig) -> pystac.Catalog:
     """
     Build flattened STAC catalog using Dask for parallel campaign processing.
     
@@ -894,18 +889,8 @@ def build_flat_catalog_dask(
 
     Parameters
     ----------
-    data_root : Path
-        Root directory containing campaign data
-    output_path : Path
-        Directory where catalog and parquet files will be saved
-    catalog_id : str, optional
-        Catalog ID, by default "OPR"
-    catalog_description : str, optional
-        Catalog description, by default "Open Polar Radar airborne data"
-    campaign_filter : list, optional
-        Specific campaigns to process, by default None (all campaigns)
-    config : DictConfig, optional
-        Configuration object with catalog parameters. If None, uses defaults.
+    config : DictConfig
+        Configuration object with all required settings
 
     Returns
     -------
@@ -915,28 +900,20 @@ def build_flat_catalog_dask(
     Examples
     --------
     >>> conf = OmegaConf.create({
-    ...     'processing': {'n_workers': 8},
-    ...     'logging': {'verbose': True},
-    ...     'output': {'path': './output'}
+    ...     'data': {'root': '/data'},
+    ...     'output': {'path': './output', 'catalog_id': 'OPR', 'catalog_description': 'Open Polar Radar data'},
+    ...     'processing': {'n_workers': 8, 'memory_limit': '2GB'},
+    ...     'logging': {'verbose': True}
     ... })
-    >>> catalog = build_flat_catalog_dask(
-    ...     Path('/data'), Path('./output'), config=conf
-    ... )
+    >>> catalog = build_flat_catalog_dask(conf)
     >>> # Parquet files are written during processing to ./output/<campaign>.parquet
     """
-    # Handle backward compatibility and config
-    config = config_from_kwargs(config, **kwargs)
+    # Get paths from config
+    data_root = Path(config.data.root)
+    output_path = Path(config.output.path)
     
-    # Set output_dir in config if not already set
-    if config.output_dir is None:
-        config = config.copy_with(output_dir=output_path)
-    
-    # Discover campaigns
-    campaigns = discover_campaigns(data_root)
-    
-    # Filter campaigns if specified
-    if campaign_filter:
-        campaigns = [c for c in campaigns if c['name'] in campaign_filter]
+    # Discover campaigns (filtering happens inside based on config)
+    campaigns = discover_campaigns(data_root, config)
     
     print(f"🚀 Processing {len(campaigns)} campaigns with Dask workers")
     
@@ -1004,8 +981,6 @@ def build_flat_catalog_dask(
     # Build catalog from the parquet files
     catalog = build_catalog_from_parquet_files(
         parquet_paths=parquet_paths,
-        catalog_id=catalog_id,
-        catalog_description=catalog_description,
         config=config
     )
     
