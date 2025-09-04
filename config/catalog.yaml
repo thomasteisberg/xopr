@@ -1,0 +1,63 @@
+# XOPR STAC Catalog Configuration
+# =================================
+
+version: "1.0.0"
+
+# Data source and filtering
+data:
+  root: "/data/opr"
+  primary_product: "CSARP_standard"
+  extra_products:
+    - "CSARP_layer"
+    - "CSARP_qlook"
+  
+  # Campaign filtering (optional)
+  campaigns:
+    include: []  # List specific campaigns to include (empty = all)
+    exclude: []  # List campaigns to exclude
+  campaign_filter: ""  # Regex pattern to match campaign names (empty = no filter)
+
+# Output and catalog metadata
+output:
+  path: "${pwd}/stac_catalog"
+  catalog_id: "OPR"
+  catalog_description: "Open Polar Radar airborne data"
+  license: "various"  # License for the data (e.g., "CC-BY-4.0", "various", etc.)
+
+# Processing
+processing:
+  n_workers: 4
+  memory_limit: "4GB"
+  max_items: null  # null for all items
+
+# Asset URLs
+assets:
+  base_url: "https://data.cresis.ku.edu/data/rds/"
+
+# Logging
+logging:
+  verbose: false
+  level: "INFO"
+
+# Geometry simplification
+geometry:
+  simplify: true
+  tolerance: 100.0
+
+# Environment overrides (optional)
+environments:
+  test:
+    processing:
+      max_items: 10
+      n_workers: 2
+    output:
+      path: "./test_catalog"
+    logging:
+      verbose: true
+  
+  production:
+    processing:
+      n_workers: 16
+      memory_limit: "8GB"
+    logging:
+      level: "WARNING"

@@ -13,7 +13,7 @@ from .catalog import (
     build_flat_catalog_dask, build_catalog_from_parquet_files,
     export_collection_to_parquet
 )
-from .config import CatalogConfig
+from .config import load_config, save_config, validate_config, get_default_config
 from .geometry import (
     build_collection_extent, build_collection_extent_and_geometry,
     merge_item_geometries, merge_flight_geometries
@@ -30,7 +30,10 @@ from .build import (
 
 __all__ = [
     # Configuration
-    "CatalogConfig",
+    "load_config",
+    "save_config",
+    "validate_config",
+    "get_default_config",
     # Catalog functions
     "create_catalog",
     "create_collection", 

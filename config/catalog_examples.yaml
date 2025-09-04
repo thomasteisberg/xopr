@@ -1,0 +1,82 @@
+# Example XOPR STAC Catalog Configurations
+# =========================================
+
+# Example 1: Process only 2016 Antarctic campaigns
+antarctica_2016:
+  version: "1.0.0"
+  data:
+    root: "/data/opr"
+    primary_product: "CSARP_standard"
+    extra_products: ["CSARP_layer", "CSARP_qlook"]
+    campaign_filter: "2016_Antarctica_.*"  # Regex for 2016 Antarctic campaigns
+  output:
+    path: "./stac_2016_antarctica"
+    catalog_id: "OPR-2016-Antarctica"
+    catalog_description: "2016 Antarctic radar campaigns"
+    license: "various"
+  processing:
+    n_workers: 8
+  assets:
+    base_url: "https://data.cresis.ku.edu/data/rds/"
+
+# Example 2: Process specific campaigns by list
+selected_campaigns:
+  version: "1.0.0"
+  data:
+    root: "/data/opr"
+    primary_product: "CSARP_standard"
+    campaigns:
+      include:
+        - "2016_Antarctica_DC8"
+        - "2017_Antarctica_P3"
+        - "2018_Greenland_P3"
+  output:
+    path: "./stac_selected"
+    catalog_id: "OPR-Selected"
+    catalog_description: "Selected OPR campaigns"
+    license: "CC-BY-4.0"  # Example of specific license
+  processing:
+    n_workers: 4
+  assets:
+    base_url: "https://data.cresis.ku.edu/data/rds/"
+
+# Example 3: Exclude test campaigns
+production:
+  version: "1.0.0"
+  data:
+    root: "/data/opr"
+    primary_product: "CSARP_standard"
+    campaigns:
+      exclude:
+        - "2016_Test_Campaign"
+        - "2017_Calibration_Flight"
+  output:
+    path: "./stac_production"
+    catalog_id: "OPR-Production"
+    catalog_description: "Open Polar Radar production data"
+    license: "various"
+  processing:
+    n_workers: 16
+    memory_limit: "8GB"
+  assets:
+    base_url: "https://data.cresis.ku.edu/data/rds/"
+
+# Example 4: Quick test with limited data
+test:
+  version: "1.0.0"
+  data:
+    root: "/data/opr"
+    primary_product: "CSARP_qlook"  # Use qlook for faster processing
+    campaign_filter: "2016_Antarctica_DC8"  # Single campaign
+  output:
+    path: "./test_output"
+    catalog_id: "OPR-Test"
+    catalog_description: "Test catalog generation"
+    license: "various"
+  processing:
+    n_workers: 2
+    max_items: 5  # Process only 5 flights
+  assets:
+    base_url: "https://data.cresis.ku.edu/data/rds/"
+  logging:
+    verbose: true

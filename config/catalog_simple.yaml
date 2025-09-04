@@ -1,0 +1,51 @@
+# XOPR STAC Catalog Configuration
+# =================================
+# Minimal, clean configuration for catalog generation
+
+version: "1.0.0"
+
+# Data source
+data:
+  root: "/data/opr"
+  primary_product: "CSARP_standard"
+  extra_products:
+    - "CSARP_layer"
+    - "CSARP_qlook"
+
+# Output
+output:
+  path: "${pwd}/stac_catalog"
+  catalog_id: "opr-catalog"
+
+# Processing
+processing:
+  mode: "parallel"  # sequential, parallel, or dask
+  n_workers: 4
+  max_items: null  # null for all
+
+# Assets
+assets:
+  base_url: "https://data.cresis.ku.edu/data/rds/"
+
+# Logging
+logging:
+  verbose: true
+  level: "INFO"
+
+# Geometry
+geometry:
+  simplify: true
+  tolerance: 100.0
+
+# Environment overrides (optional)
+environments:
+  test:
+    processing:
+      max_items: 10
+    output:
+      path: "./test_catalog"
+  
+  production:
+    processing:
+      mode: "dask"
+      n_workers: 16
