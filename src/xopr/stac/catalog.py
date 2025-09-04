@@ -4,6 +4,7 @@ STAC catalog creation utilities for Open Polar Radar data.
 
 import re
 import json
+import logging
 from pathlib import Path
 from typing import List, Optional, Dict, Any, Union
 
@@ -23,7 +24,7 @@ from .geometry import (
     build_collection_extent_and_geometry,
     build_collection_extent
 )
-from .config import CatalogConfig, config_from_kwargs
+from omegaconf import DictConfig, OmegaConf
 
 # STAC extension URLs
 SCI_EXT = 'https://stac-extensions.github.io/scientific/v1.0.0/schema.json'
@@ -215,7 +216,8 @@ def create_items_from_flight_data(
     base_url: str = "https://data.cresis.ku.edu/data/rds/",
     campaign_name: str = "",
     primary_data_product: str = "CSARP_standard",
-    verbose: bool = False
+    verbose: bool = False,
+    error_log_file: Optional[Union[str, Path]] = None
 ) -> List[pystac.Item]:
     """
     Create STAC items from flight line data.
@@ -233,6 +235,9 @@ def create_items_from_flight_data(
         Data product name to use as primary data source.
     verbose : bool, default False
         If True, print details for each item being processed.
+    error_log_file : str or Path, optional
+        Path to file where metadata extraction errors will be logged.
+        If None, errors are printed to stdout (default behavior).
         
     Returns
     -------
@@ -252,7 +257,16 @@ def create_items_from_flight_data(
             # Extract metadata from MAT file only (no CSV needed)
             metadata = extract_item_metadata(data_path)
         except Exception as e:
-            print(f"Warning: Failed to extract metadata for {data_path}: {e}")
+            error_msg = f"Failed to extract metadata for {data_path}: {e}"
+            
+            if error_log_file is not None:
+                # Log to file
+                with open(error_log_file, 'a', encoding='utf-8') as f:
+                    f.write(f"{error_msg}\n")
+            else:
+                # Fallback to print (current behavior)
+                print(f"Warning: {error_msg}")
+            
             continue
 
         item_id = f"{data_path.stem}"
@@ -532,7 +546,7 @@ def build_limited_catalog(
 def build_flat_collection(
     campaign: dict,
     data_root: Path,
-    config: CatalogConfig
+    config: DictConfig
 ) -> Path:
     """
     Build a single flattened STAC collection for one campaign and write to parquet.
@@ -548,8 +562,8 @@ def build_flat_collection(
         Campaign metadata with 'name', 'path', 'year', 'location', 'aircraft'
     data_root : Path
         Root directory containing campaign data
-    config : CatalogConfig
-        Configuration object with catalog parameters. Must have output_dir set.
+    config : DictConfig
+        Configuration object with catalog parameters. Must have output.path set.
 
     Returns
     -------
@@ -565,28 +579,27 @@ def build_flat_collection(
         
     Examples
     --------
-    >>> from xopr.stac import discover_campaigns, CatalogConfig
+    >>> from omegaconf import OmegaConf
+    >>> from xopr.stac import discover_campaigns
     >>> campaigns = discover_campaigns(Path('/data'))
-    >>> config = CatalogConfig(output_dir=Path('./output'))
+    >>> config = OmegaConf.create({'output': {'path': './output'}})
     >>> parquet_path = build_flat_collection(campaigns[0], Path('/data'), config)
     >>> print(f"Exported campaign to {parquet_path}")
     """
-    # Validate output_dir is set
-    if config.output_dir is None:
-        raise ValueError("config.output_dir must be set for build_flat_collection")
+    # Validate output path is set
+    if not config.output.get('path'):
+        raise ValueError("config.output.path must be set for build_flat_collection")
     
     campaign_path = Path(campaign['path'])
     campaign_name = campaign['name']
+    verbose = config.logging.get('verbose', False)
 
-    if config.verbose:
+    if verbose:
         print(f"Processing campaign: {campaign_name}")
 
     # Discover flight lines for this campaign
     try:
-        flight_lines = discover_flight_lines(
-            campaign_path, config.data_product,
-            extra_data_products=config.extra_data_products
-        )
+        flight_lines = discover_flight_lines(campaign_path, config)
     except FileNotFoundError as e:
         raise FileNotFoundError(f"Campaign data not found for {campaign_name}: {e}")
 
@@ -594,8 +607,9 @@ def build_flat_collection(
         raise ValueError(f"No flight lines found for {campaign_name}")
 
     # Limit the number of flight lines processed if specified
-    if config.max_items is not None:
-        flight_lines = flight_lines[:config.max_items]
+    max_items = config.processing.get('max_items')
+    if max_items is not None:
+        flight_lines = flight_lines[:max_items]
 
     # Collect ALL items across all flights for this campaign
     all_campaign_items = []
@@ -603,22 +617,22 @@ def build_flat_collection(
     for flight_data in flight_lines:
         try:
             items = create_items_from_flight_data(
-                flight_data, config.base_url, campaign_name, config.data_product, config.verbose
+                flight_data, config.assets.base_url, campaign_name, config.data.primary_product, verbose
             )
             all_campaign_items.extend(items)
 
             flight_id = flight_data['flight_id']
-            if config.verbose:
+            if verbose:
                 print(f"  Added {len(items)} items from flight {flight_id}")
 
             # Break early if we've hit the max items limit
-            if (config.max_items is not None and
-                    len(all_campaign_items) >= config.max_items):
+            if (max_items is not None and
+                    len(all_campaign_items) >= max_items):
                 break
 
         except Exception as e:
             flight_id = flight_data['flight_id']
-            if config.verbose:
+            if verbose:
                 print(f"Warning: Failed to process flight {flight_id}: {e}")
             continue
 
@@ -655,11 +669,12 @@ def build_flat_collection(
     # Add ALL items directly to campaign collection (flattened structure)
     campaign_collection.add_items(all_campaign_items)
     
-    if config.verbose:
+    if verbose:
         print(f"Added flattened campaign collection {campaign_name} with {len(all_campaign_items)} total items (no flight collections)")
     
     # Export to parquet and return the path (not the collection) to avoid memory accumulation
-    parquet_path = export_collection_to_parquet(campaign_collection, config.output_dir, config.verbose)
+    output_dir = Path(config.output.path)
+    parquet_path = export_collection_to_parquet(campaign_collection, output_dir, verbose, config)
     
     if not parquet_path:
         raise ValueError(f"Failed to write parquet file for campaign {campaign_name}")
@@ -801,13 +816,9 @@ def build_catalog_from_parquet_files(
     ...     parquet_files, config=CatalogConfig(verbose=True)
     ... )
     """
-    # Handle config
-    if config is None:
-        config = CatalogConfig()
-    
     catalog = create_catalog(catalog_id=catalog_id, description=catalog_description)
     
-    if config.verbose:
+    if verbose:
         print(f"Building catalog from {len(parquet_paths)} parquet files")
     
     for parquet_path in parquet_paths:
@@ -847,17 +858,19 @@ def build_catalog_from_parquet_files(
             # Add collection to catalog (items remain in parquet file)
             catalog.add_child(collection)
             
-            if config.verbose:
+            verbose = config.logging.get('verbose', False)
+        if verbose:
                 # Get row count from metadata without reading the table
                 num_rows = parquet_metadata.num_rows
                 print(f"  ✅ Added collection: {collection.id} from {parquet_path.name} ({num_rows} items in parquet)")
                     
         except Exception as e:
-            if config.verbose:
+            verbose = config.logging.get('verbose', False)
+        if verbose:
                 print(f"  ❌ Failed to process {parquet_path.name}: {e}")
             continue
     
-    if config.verbose:
+    if verbose:
         collections = list(catalog.get_collections())
         print(f"Built catalog with {len(collections)} collections")
     
@@ -870,8 +883,7 @@ def build_flat_catalog_dask(
     catalog_id: str = "OPR",
     catalog_description: str = "Open Polar Radar airborne data",
     campaign_filter: list = None,
-    config: Optional[CatalogConfig] = None,
-    **kwargs  # For backward compatibility
+    config: DictConfig
 ) -> pystac.Catalog:
     """
     Build flattened STAC catalog using Dask for parallel campaign processing.
@@ -892,10 +904,8 @@ def build_flat_catalog_dask(
         Catalog description, by default "Open Polar Radar airborne data"
     campaign_filter : list, optional
         Specific campaigns to process, by default None (all campaigns)
-    config : CatalogConfig, optional
+    config : DictConfig, optional
         Configuration object with catalog parameters. If None, uses defaults.
-    **kwargs
-        For backward compatibility - individual parameters can be passed
 
     Returns
     -------
@@ -904,9 +914,13 @@ def build_flat_catalog_dask(
         
     Examples
     --------
-    >>> config = CatalogConfig(n_workers=8, verbose=True, output_dir=Path('./output'))
+    >>> conf = OmegaConf.create({
+    ...     'processing': {'n_workers': 8},
+    ...     'logging': {'verbose': True},
+    ...     'output': {'path': './output'}
+    ... })
     >>> catalog = build_flat_catalog_dask(
-    ...     Path('/data'), Path('./output'), config=config
+    ...     Path('/data'), Path('./output'), config=conf
     ... )
     >>> # Parquet files are written during processing to ./output/<campaign>.parquet
     """
@@ -953,7 +967,8 @@ def build_flat_catalog_dask(
             )
             futures_to_campaigns[future] = campaign
             
-        if config.verbose:
+        verbose = config.logging.get('verbose', False)
+        if verbose:
             print(f"   Submitted {len(futures_to_campaigns)} campaign tasks")
             print(f"   Parquet files will be written to: {output_path}/<campaign>.parquet")
         
@@ -1000,7 +1015,7 @@ def build_flat_catalog_dask(
         catalog_type=pystac.CatalogType.SELF_CONTAINED
     )
 
-    if config.verbose:
+    if verbose:
         successful = len(parquet_paths)
         print(f"\n🎉 Flattened catalog saved to {output_path}/catalog.json")
         print(f"   Processed {successful}/{len(campaigns)} campaigns successfully")

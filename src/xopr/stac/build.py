@@ -21,6 +21,7 @@ from .catalog import (
     build_collection_extent_and_geometry, merge_flight_geometries,
     export_collection_to_parquet
 )
+from omegaconf import DictConfig
 from .metadata import discover_campaigns, discover_flight_lines
 
 # STAC extension URLs
@@ -34,11 +35,9 @@ SAR_EXT = 'https://stac-extensions.github.io/sar/v1.3.0/schema.json'
 
 def process_single_flight(
     flight_data: Dict[str, Any],
-    base_url: str,
     campaign_name: str,
-    primary_data_product: str,
     campaign_info: Dict[str, Any],
-    verbose: bool = False
+    conf: DictConfig
 ) -> Optional[Dict[str, Any]]:
     """
     Process a single flight and return flight collection data.
@@ -47,16 +46,12 @@ def process_single_flight(
     ----------
     flight_data : dict
         Flight metadata from discover_flight_lines() with 'flight_id' and 'data_files'
-    base_url : str
-        Base URL for asset hrefs (e.g., "https://data.cresis.ku.edu/data/rds/")
     campaign_name : str
         Campaign name (e.g., "2016_Antarctica_DC8")
-    primary_data_product : str
-        Primary data product name (e.g., "CSARP_standard")
     campaign_info : dict
         Campaign metadata with 'year', 'location', 'aircraft'
-    verbose : bool, optional
-        If True, print verbose output
+    conf : DictConfig
+        Configuration object with assets.base_url, data.primary_product, and logging settings
         
     Returns
     -------
@@ -74,12 +69,17 @@ def process_single_flight(
     ...     'flight_id': '20161014_03',
     ...     'data_files': {'CSARP_standard': {...}}
     ... }
+    >>> from omegaconf import OmegaConf
+    >>> conf = OmegaConf.create({
+    ...     'assets': {'base_url': 'https://example.com/'},
+    ...     'data': {'primary_product': 'CSARP_standard'},
+    ...     'logging': {'verbose': False}
+    ... })
     >>> result = process_single_flight(
     ...     flight_data, 
-    ...     "https://example.com/", 
     ...     "2016_Antarctica_DC8",
-    ...     "CSARP_standard",
-    ...     {'year': '2016', 'location': 'Antarctica', 'aircraft': 'DC8'}
+    ...     {'year': '2016', 'location': 'Antarctica', 'aircraft': 'DC8'},
+    ...     conf
     ... )
     >>> if result:
     ...     print(f"Processed flight {result['flight_id']} with {len(result['items'])} items")
@@ -87,7 +87,11 @@ def process_single_flight(
     try:
         # Create items for this flight
         items = create_items_from_flight_data(
-            flight_data, base_url, campaign_name, primary_data_product, verbose
+            flight_data, 
+            conf.assets.base_url, 
+            campaign_name, 
+            conf.data.primary_product, 
+            conf.logging.get('verbose', False)
         )
         
         if not items:
@@ -107,6 +111,7 @@ def process_single_flight(
                 f"{campaign_info['aircraft']} over {campaign_info['location']}"
             ),
             extent=flight_extent,
+            license=conf.output.get('license', 'various'),
             stac_extensions=flight_extensions if flight_extensions else None,
             geometry=flight_geometry
         )
@@ -127,19 +132,14 @@ def process_single_flight(
         
     except Exception as e:
         flight_id = flight_data.get('flight_id', 'unknown')
-        if verbose:
+        if conf.logging.get('verbose', False):
             print(f"Warning: Failed to process flight {flight_id}: {e}")
         return None
 
 
 def process_single_campaign(
     campaign: Dict[str, Any],
-    data_root: Path,
-    data_product: str = "CSARP_standard",
-    extra_data_products: Optional[List[str]] = None,
-    base_url: str = "https://data.cresis.ku.edu/data/rds/",
-    max_flights: Optional[int] = None,
-    verbose: bool = False
+    conf: DictConfig
 ) -> Optional[pystac.Collection]:
     """
     Process a single campaign and return campaign collection.
@@ -148,18 +148,8 @@ def process_single_campaign(
     ----------
     campaign : dict
         Campaign metadata with keys 'name', 'path', 'year', 'location', 'aircraft'
-    data_root : Path
-        Root directory containing campaign data
-    data_product : str, optional
-        Primary data product to process
-    extra_data_products : list of str, optional
-        Additional data products to include
-    base_url : str, optional
-        Base URL for asset hrefs
-    max_flights : int, optional
-        Maximum number of flights to process (None for all)
-    verbose : bool, optional
-        If True, print verbose output
+    conf : DictConfig
+        Configuration object with data, processing, and logging settings
         
     Returns
     -------
@@ -175,25 +165,27 @@ def process_single_campaign(
     ...     'location': 'Antarctica',
     ...     'aircraft': 'DC8'
     ... }
-    >>> collection = process_single_campaign(campaign, Path('/data'))
+    >>> from omegaconf import OmegaConf
+    >>> conf = OmegaConf.create({
+    ...     'data': {'primary_product': 'CSARP_standard', 'extra_products': ['CSARP_layer']},
+    ...     'assets': {'base_url': 'https://data.cresis.ku.edu/data/rds/'},
+    ...     'processing': {'max_items': None},
+    ...     'logging': {'verbose': False}
+    ... })
+    >>> collection = process_single_campaign(campaign, conf)
     >>> if collection:
     ...     print(f"Processed {collection.id} with {len(list(collection.get_collections()))} flights")
     """
-    if extra_data_products is None:
-        extra_data_products = ['CSARP_layer']
-    
     campaign_path = Path(campaign['path'])
     campaign_name = campaign['name']
+    verbose = conf.logging.get('verbose', False)
     
     if verbose:
         print(f"Processing campaign: {campaign_name}")
     
     # Discover flight lines
     try:
-        flight_lines = discover_flight_lines(
-            campaign_path, data_product,
-            extra_data_products=extra_data_products
-        )
+        flight_lines = discover_flight_lines(campaign_path, conf)
     except FileNotFoundError as e:
         if verbose:
             print(f"Warning: Skipping {campaign_name}: {e}")
@@ -205,8 +197,9 @@ def process_single_campaign(
         return None
     
     # Limit flights if specified
-    if max_flights is not None:
-        flight_lines = flight_lines[:max_flights]
+    max_items = conf.processing.get('max_items')
+    if max_items is not None:
+        flight_lines = flight_lines[:max_items]
     
     # Process flights
     flight_collections = []
@@ -215,8 +208,7 @@ def process_single_campaign(
     
     for flight_data in flight_lines:
         flight_result = process_single_flight(
-            flight_data, base_url, campaign_name, 
-            data_product, campaign, verbose
+            flight_data, campaign_name, campaign, conf
         )
         
         if flight_result:
@@ -247,6 +239,7 @@ def process_single_campaign(
             f"over {campaign['location']}"
         ),
         extent=campaign_extent,
+        license=conf.output.get('license', 'various'),
         stac_extensions=campaign_extensions if campaign_extensions else None,
         geometry=campaign_geometry
     )
@@ -339,14 +332,7 @@ def collect_metadata_from_items(items: List[pystac.Item]) -> tuple:
 
 def build_hierarchical_catalog(
     campaigns: List[Dict[str, Any]],
-    data_root: Path,
-    catalog_id: str = "OPR",
-    catalog_description: str = "Open Polar Radar airborne data",
-    data_product: str = "CSARP_standard",
-    extra_data_products: Optional[List[str]] = None,
-    base_url: str = "https://data.cresis.ku.edu/data/rds/",
-    max_flights: Optional[int] = None,
-    verbose: bool = False
+    conf: DictConfig
 ) -> pystac.Catalog:
     """
     Build a hierarchical STAC catalog from campaigns.
@@ -357,22 +343,8 @@ def build_hierarchical_catalog(
     ----------
     campaigns : list of dict
         List of campaign dictionaries to process
-    data_root : Path
-        Root directory containing campaign data
-    catalog_id : str, optional
-        Catalog identifier
-    catalog_description : str, optional
-        Catalog description
-    data_product : str, optional
-        Primary data product to process
-    extra_data_products : list of str, optional
-        Additional data products to include
-    base_url : str, optional
-        Base URL for asset hrefs
-    max_flights : int, optional
-        Maximum number of flights per campaign
-    verbose : bool, optional
-        If True, print verbose output
+    conf : DictConfig
+        Configuration object with output.catalog_id, output.catalog_description, and other settings
         
     Returns
     -------
@@ -381,21 +353,24 @@ def build_hierarchical_catalog(
     
     Examples
     --------
-    >>> campaigns = discover_campaigns(Path('/data'))
-    >>> catalog = build_hierarchical_catalog(
-    ...     campaigns[:2],  # Process first 2 campaigns
-    ...     Path('/data'),
-    ...     verbose=True
-    ... )
+    >>> from omegaconf import OmegaConf
+    >>> conf = OmegaConf.create({
+    ...     'output': {'catalog_id': 'OPR', 'catalog_description': 'Open Polar Radar data'},
+    ...     'data': {'primary_product': 'CSARP_standard'},
+    ...     'assets': {'base_url': 'https://data.cresis.ku.edu/data/rds/'},
+    ...     'processing': {'max_items': None},
+    ...     'logging': {'verbose': True}
+    ... })
+    >>> campaigns = discover_campaigns(Path('/data'), conf)
+    >>> catalog = build_hierarchical_catalog(campaigns[:2], conf)
     >>> catalog.normalize_and_save('output/catalog')
     """
+    catalog_id = conf.output.get('catalog_id', 'OPR')
+    catalog_description = conf.output.get('catalog_description', 'Open Polar Radar airborne data')
     catalog = create_catalog(catalog_id=catalog_id, description=catalog_description)
     
     for campaign in campaigns:
-        collection = process_single_campaign(
-            campaign, data_root, data_product,
-            extra_data_products, base_url, max_flights, verbose
-        )
+        collection = process_single_campaign(campaign, conf)
         
         if collection:
             catalog.add_child(collection)
