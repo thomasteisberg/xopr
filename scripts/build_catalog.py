@@ -23,7 +23,7 @@ from xopr.stac.catalog import create_items_from_flight_data, create_collection, 
 from xopr.stac.geometry import build_collection_extent_and_geometry
 
 
-def build_collection_parallel(campaign_path: Path, conf: DictConfig) -> Optional[Path]:
+def build_collection_parallel(campaign_path: Path, conf: DictConfig, client: Client) -> Optional[Path]:
     """
     Build a parquet collection for a single campaign using parallel processing.
     
@@ -33,6 +33,8 @@ def build_collection_parallel(campaign_path: Path, conf: DictConfig) -> Optional
         Path to campaign directory
     conf : DictConfig
         Configuration object
+    client : Client
+        Dask distributed client for parallel processing
         
     Returns
     -------
@@ -55,47 +57,36 @@ def build_collection_parallel(campaign_path: Path, conf: DictConfig) -> Optional
         flight_lines = flight_lines[:conf.processing.max_items]
         print(f"   Limited to {len(flight_lines)} flights (max_items={conf.processing.max_items})")
     
-    # Setup Dask cluster
-    print(f"🚀 Starting Dask cluster with {conf.processing.n_workers} workers")
-    cluster = LocalCluster(
-        n_workers=conf.processing.n_workers,
-        threads_per_worker=1,
-        memory_limit=conf.processing.get('memory_limit', '4GB')
-    )
+    # Submit flight processing tasks
+    print(f"📡 Processing {len(flight_lines)} flights in parallel...")
+    futures = []
+    for flight_data in flight_lines:
+        future = client.submit(create_items_from_flight_data,
+            flight_data,
+            conf,  # Pass config object
+            conf.assets.base_url,
+            campaign_name,
+            conf.data.primary_product,
+            False  # verbose=False for parallel
+        )
+        futures.append(future)
     
-    with Client(cluster) as client:
-        print(f"   Dashboard: {client.dashboard_link}")
-        
-        # Submit flight processing tasks
-        print(f"📡 Processing {len(flight_lines)} flights in parallel...")
-        futures = []
-        for flight_data in flight_lines:
-            future = client.submit(create_items_from_flight_data,
-                flight_data,
-                conf,  # Pass config object
-                conf.assets.base_url,
-                campaign_name,
-                conf.data.primary_product,
-                False  # verbose=False for parallel
-            )
-            futures.append(future)
-        
-        # Collect results
-        all_items = []
-        completed_count = 0
-        
-        for future in as_completed(futures):
-            try:
-                items = future.result()
-                all_items.extend(items)
-                completed_count += 1
-                print(f"   Completed flight {completed_count}/{len(flight_lines)} "
-                      f"({len(items)} items)")
-            except Exception as e:
-                logging.warning(f"   ⚠️ Failed to process flight: {e}")
-                completed_count += 1
-        
-        print(f"✅ Processed {len(all_items)} total items from {completed_count} flights")
+    # Collect results
+    all_items = []
+    completed_count = 0
+    
+    for future in as_completed(futures):
+        try:
+            items = future.result()
+            all_items.extend(items)
+            completed_count += 1
+            print(f"   Completed flight {completed_count}/{len(flight_lines)} "
+                  f"({len(items)} items)")
+        except Exception as e:
+            logging.warning(f"   ⚠️ Failed to process flight: {e}")
+            completed_count += 1
+    
+    print(f"✅ Processed {len(all_items)} total items from {completed_count} flights")
     
     if not all_items:
         print(f"❌ No items created for campaign {campaign_name}")
@@ -165,15 +156,31 @@ def process_catalog(conf: DictConfig):
     
     print(f"Found {len(campaigns)} campaigns")
     
-    # Process each campaign
-    results = []
-    for campaign in campaigns:
-        try:
-            path = build_collection_parallel(Path(campaign['path']), conf)
-            if path:
-                results.append(path)
-        except Exception as e:
-            logging.error(f"Failed {campaign['name']}: {e}")
+    # Setup Dask cluster
+    print(f"🚀 Starting Dask cluster with {conf.processing.n_workers} workers")
+    cluster = LocalCluster(
+        n_workers=conf.processing.n_workers,
+        threads_per_worker=1,
+        memory_limit=conf.processing.get('memory_limit', '4GB')
+    )
+    
+    try:
+        with Client(cluster) as client:
+            print(f"   Dashboard: {client.dashboard_link}")
+            
+            # Process each campaign
+            results = []
+            for campaign in campaigns:
+                try:
+                    path = build_collection_parallel(Path(campaign['path']), conf, client)
+                    if path:
+                        results.append(path)
+                except Exception as e:
+                    logging.error(f"Failed {campaign['name']}: {e}")
+    finally:
+        # Explicitly shut down the cluster
+        print("🔄 Shutting down Dask cluster...")
+        cluster.close()
     
     # Save config for reproducibility
     output_path = Path(conf.output.path)
