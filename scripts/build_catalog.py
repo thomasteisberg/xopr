@@ -5,6 +5,7 @@ Primary workflow: Build parquet collections in parallel, then aggregate with agg
 """
 
 import argparse
+import gc
 import logging
 import re
 import sys
@@ -87,6 +88,14 @@ def build_collection_parallel(campaign_path: Path, conf: DictConfig, client: Cli
             completed_count += 1
     
     print(f"✅ Processed {len(all_items)} total items from {completed_count} flights")
+    
+    # Explicit cleanup of futures to free worker memory
+    for future in futures:
+        client.cancel(future)  # Tell scheduler to release data
+    futures.clear()  # Clear local references
+    
+    # Trigger async garbage collection on all workers
+    client.run(gc.collect, wait=False)  # Non-blocking cleanup
     
     if not all_items:
         print(f"❌ No items created for campaign {campaign_name}")
