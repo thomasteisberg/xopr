@@ -94,8 +94,8 @@ def build_collection_parallel(campaign_path: Path, conf: DictConfig, client: Cli
         client.cancel(future)  # Tell scheduler to release data
     futures.clear()  # Clear local references
     
-    # Trigger async garbage collection on all workers
-    client.run(gc.collect, wait=False)  # Non-blocking cleanup
+    # Trigger garbage collection on all workers (synchronous but fast)
+    client.run(gc.collect)  # Cleanup worker memory
     
     if not all_items:
         print(f"❌ No items created for campaign {campaign_name}")
