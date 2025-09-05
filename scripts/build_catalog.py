@@ -40,21 +40,23 @@ def build_collection_parallel(campaign_path: Path, conf: DictConfig) -> Optional
         Path to created parquet file, or None if failed
     """
     campaign_name = campaign_path.name
-    print(f"📡 Processing {campaign_name}")
+    print(f"🔍 Discovering flight lines for campaign: {campaign_name}")
     
     # Discover flight lines
     flight_lines = discover_flight_lines(campaign_path, conf)
     if not flight_lines:
-        print(f"  ⚠️ No flights found")
+        print(f"  ❌ No flight lines found for campaign {campaign_name}")
         return None
+    
+    print(f"   Found {len(flight_lines)} flight lines")
     
     # Apply max_items limit
     if conf.processing.max_items:
         flight_lines = flight_lines[:conf.processing.max_items]
-    
-    print(f"  Found {len(flight_lines)} flights")
+        print(f"   Limited to {len(flight_lines)} flights (max_items={conf.processing.max_items})")
     
     # Setup Dask cluster
+    print(f"🚀 Starting Dask cluster with {conf.processing.n_workers} workers")
     cluster = LocalCluster(
         n_workers=conf.processing.n_workers,
         threads_per_worker=1,
@@ -62,33 +64,45 @@ def build_collection_parallel(campaign_path: Path, conf: DictConfig) -> Optional
     )
     
     with Client(cluster) as client:
+        print(f"   Dashboard: {client.dashboard_link}")
+        
         # Submit flight processing tasks
-        futures = [
-            client.submit(
-                create_items_from_flight_data,
+        print(f"📡 Processing {len(flight_lines)} flights in parallel...")
+        futures = []
+        for flight_data in flight_lines:
+            future = client.submit(create_items_from_flight_data,
                 flight_data,
+                conf,  # Pass config object
                 conf.assets.base_url,
                 campaign_name,
                 conf.data.primary_product,
                 False  # verbose=False for parallel
             )
-            for flight_data in flight_lines
-        ]
+            futures.append(future)
         
         # Collect results
         all_items = []
+        completed_count = 0
+        
         for future in as_completed(futures):
             try:
                 items = future.result()
                 all_items.extend(items)
+                completed_count += 1
+                print(f"   Completed flight {completed_count}/{len(flight_lines)} "
+                      f"({len(items)} items)")
             except Exception as e:
-                logging.warning(f"Failed to process flight: {e}")
+                logging.warning(f"   ⚠️ Failed to process flight: {e}")
+                completed_count += 1
+        
+        print(f"✅ Processed {len(all_items)} total items from {completed_count} flights")
     
     if not all_items:
-        print(f"  ❌ No items created")
+        print(f"❌ No items created for campaign {campaign_name}")
         return None
     
     # Build collection
+    print("📐 Building collection extent and geometry...")
     extent, geometry = build_collection_extent_and_geometry(all_items)
     extensions, extra_fields = collect_uniform_metadata(
         all_items, 
@@ -101,6 +115,7 @@ def build_collection_parallel(campaign_path: Path, conf: DictConfig) -> Optional
     location = parts[1] if len(parts) > 1 else ''
     aircraft = parts[2] if len(parts) > 2 else ''
     
+    print(f"📦 Creating STAC collection: {campaign_name}")
     collection = create_collection(
         collection_id=campaign_name,
         description=f"{year} {aircraft} flights over {location}",
@@ -120,11 +135,14 @@ def build_collection_parallel(campaign_path: Path, conf: DictConfig) -> Optional
     output_dir = Path(conf.output.path)
     output_dir.mkdir(parents=True, exist_ok=True)
     
+    print(f"💾 Writing parquet file...")
     parquet_path = export_collection_to_parquet(
         collection, conf
     )
     
-    print(f"  ✅ {len(all_items)} items → {parquet_path.name}")
+    print(f"✅ Successfully created: {parquet_path.name}")
+    print(f"   Items: {len(all_items)}")
+    print(f"   File size: {parquet_path.stat().st_size / 1024 / 1024:.1f} MB")
     return parquet_path
 
 
@@ -162,8 +180,9 @@ def process_catalog(conf: DictConfig):
     save_config(conf, output_path / "config_used.yaml")
     
     # Summary
-    print(f"\n✅ Created {len(results)} parquet files")
-    print(f"Run aggregate_parquet_catalog.py to create catalog.json")
+    print(f"\n🎉 Created {len(results)} parquet files")
+    if results:
+        print("📋 Next step: Run aggregate_parquet_catalog.py to create catalog.json")
 
 
 def main():
