@@ -9,12 +9,11 @@ from unittest.mock import Mock, patch
 from stac_validator.validate import StacValidate
 
 from xopr.stac.catalog import (
-    create_catalog, create_collection, create_item, create_items_from_flight_data,
-    build_limited_catalog
+    create_catalog, create_collection, create_item, create_items_from_flight_data
 )
 from .common import (
     create_mock_metadata, create_mock_flight_data, create_mock_campaign_data,
-    TEST_DOI, TEST_CITATION
+    TEST_DOI, TEST_CITATION, get_test_config
 )
 
 
@@ -114,9 +113,10 @@ class TestSTACValidation:
         flight_data = create_mock_flight_data()
         
         # Create items using our library function
+        config = get_test_config()
         items = create_items_from_flight_data(
             flight_data,
-            base_url="https://test.example.com/",
+            config,
             campaign_name="test_campaign"
         )
         
@@ -127,68 +127,6 @@ class TestSTACValidation:
             result = self._validate_stac_via_file(item)
             assert result is True, f"create_items_from_flight_data() produced invalid item {i}"
 
-    @patch('xopr.stac.catalog.discover_campaigns')
-    @patch('xopr.stac.catalog.discover_flight_lines')
-    @patch('xopr.stac.catalog.extract_item_metadata')
-    def test_validate_build_limited_catalog(self, mock_extract, mock_flight_lines, mock_campaigns):
-        """Test that catalogs created by build_limited_catalog() are valid."""
-        from pathlib import Path
-        import tempfile
-        
-        # Setup mocks for a complete catalog build
-        mock_campaigns.return_value = [create_mock_campaign_data()]
-        mock_flight_lines.return_value = [create_mock_flight_data()]
-        mock_extract.return_value = create_mock_metadata(
-            doi=TEST_DOI,
-            citation=TEST_CITATION,
-            frequency=190e6,
-            bandwidth=50e6
-        )
-        
-        # Create temporary directories for the test
-        with tempfile.TemporaryDirectory() as temp_dir:
-            data_root = Path(temp_dir) / "data"
-            output_path = Path(temp_dir) / "output"
-            data_root.mkdir()
-            
-            # Build catalog using our library function
-            catalog = build_limited_catalog(
-                data_root=data_root,
-                output_path=output_path,
-                catalog_id="test-limited-catalog",
-                max_items=2,
-                verbose=False
-            )
-            
-            # Validate the root catalog
-            catalog_dict = catalog.to_dict()
-            validator = StacValidate()
-            result = validator.validate_dict(catalog_dict)
-            assert result is True, f"build_limited_catalog() produced invalid catalog"
-            
-            # Validate campaign collections created by the function
-            campaign_collections = list(catalog.get_collections())
-            assert len(campaign_collections) > 0, "build_limited_catalog() should create campaign collections"
-            
-            for campaign_collection in campaign_collections:
-                collection_dict = campaign_collection.to_dict()
-                validator = StacValidate()
-                result = validator.validate_dict(collection_dict)
-                assert result is True, f"build_limited_catalog() produced invalid campaign collection"
-                
-                # Validate flight collections created by the function
-                flight_collections = list(campaign_collection.get_collections())
-                for flight_collection in flight_collections:
-                    flight_dict = flight_collection.to_dict()
-                    validator = StacValidate()
-                    result = validator.validate_dict(flight_dict)
-                    assert result is True, f"build_limited_catalog() produced invalid flight collection"
-                    
-                    # Validate items created by the function
-                    items = list(flight_collection.get_items())
-                    for item in items:
-                        result = self._validate_stac_via_file(item)
-                        assert result is True, f"build_limited_catalog() produced invalid item"
 
     def test_validate_create_collection_with_geometry(self):
         """Test that collections with projection extension created by create_collection() are valid."""
@@ -227,7 +165,8 @@ class TestSTACValidation:
         )
         flight_data = create_mock_flight_data()
         
-        items = create_items_from_flight_data(flight_data)
+        config = get_test_config()
+        items = create_items_from_flight_data(flight_data, config)
         for item in items:
             result = self._validate_stac_via_file(item)
             assert result is True, f"create_items_from_flight_data() with no extensions produced invalid item"
@@ -237,7 +176,7 @@ class TestSTACValidation:
             doi=TEST_DOI, citation=None, frequency=None, bandwidth=None
         )
         
-        items = create_items_from_flight_data(flight_data)
+        items = create_items_from_flight_data(flight_data, config)
         for item in items:
             result = self._validate_stac_via_file(item)
             assert result is True, f"create_items_from_flight_data() with scientific extension produced invalid item"
@@ -247,7 +186,7 @@ class TestSTACValidation:
             doi=None, citation=None, frequency=190e6, bandwidth=50e6
         )
         
-        items = create_items_from_flight_data(flight_data)
+        items = create_items_from_flight_data(flight_data, config)
         for item in items:
             result = self._validate_stac_via_file(item)
             assert result is True, f"create_items_from_flight_data() with SAR extension produced invalid item"
@@ -257,10 +196,93 @@ class TestSTACValidation:
             doi=TEST_DOI, citation=TEST_CITATION, frequency=190e6, bandwidth=50e6
         )
         
-        items = create_items_from_flight_data(flight_data)
+        items = create_items_from_flight_data(flight_data, config)
         for item in items:
             result = self._validate_stac_via_file(item)
             assert result is True, f"create_items_from_flight_data() with both extensions produced invalid item"
+
+    def test_validate_catalog_with_metadata_aggregation(self):
+        """Test that catalogs using collect_metadata_from_items produce valid STAC with proper metadata."""
+        from xopr.stac.build import collect_metadata_from_items
+        from xopr.stac.catalog import create_collection, create_catalog
+        import pystac
+        from datetime import datetime
+        
+        # Create mock items with scientific metadata that should be aggregated
+        from .common import create_mock_stac_item
+        items = []
+        for i in range(3):
+            item = create_mock_stac_item(
+                doi=TEST_DOI,
+                citation=TEST_CITATION,
+                sar_freq=190e6,
+                sar_bandwidth=50e6
+            )
+            # Fix href methods to return proper strings
+            item.id = f"item_{i}"
+            item.get_self_href = Mock(return_value=f"https://test.example.com/items/item_{i}.json")
+            item.self_href = f"https://test.example.com/items/item_{i}.json"
+            items.append(item)
+        
+        # Test collect_metadata_from_items to get extensions and extra fields
+        extensions, extra_fields = collect_metadata_from_items(items)
+        
+        # Create extent for collection
+        spatial_extent = pystac.SpatialExtent(bboxes=[[-69.86, -71.37, -69.84, -71.35]])
+        temporal_extent = pystac.TemporalExtent(intervals=[[datetime(2016, 10, 14), datetime(2016, 10, 14)]])
+        extent = pystac.Extent(spatial=spatial_extent, temporal=temporal_extent)
+        
+        # Create collection with metadata collected by our active function
+        collection = create_collection(
+            collection_id="test-metadata-collection",
+            description="Test collection with aggregated metadata",
+            extent=extent,
+            license="various",
+            stac_extensions=extensions
+        )
+        
+        # Apply the extra fields collected by our function
+        for key, value in extra_fields.items():
+            collection.extra_fields[key] = value
+        
+        # Fix collection href for validation
+        collection.set_self_href("https://test.example.com/collections/test-metadata-collection.json")
+        
+        # Add items to collection
+        collection.add_items(items)
+        
+        # Validate the collection
+        collection_dict = collection.to_dict()
+        validator = StacValidate()
+        result = validator.validate_dict(collection_dict)
+        assert result is True, f"Collection with collect_metadata_from_items produced invalid STAC"
+        
+        # Verify that metadata was properly aggregated
+        sci_ext = 'https://stac-extensions.github.io/scientific/v1.0.0/schema.json'
+        sar_ext = 'https://stac-extensions.github.io/sar/v1.3.0/schema.json'
+        
+        assert sci_ext in collection_dict['stac_extensions'], "Scientific extension should be present"
+        assert sar_ext in collection_dict['stac_extensions'], "SAR extension should be present"
+        assert collection_dict['sci:doi'] == TEST_DOI, "DOI should be aggregated"
+        assert collection_dict['sci:citation'] == TEST_CITATION, "Citation should be aggregated" 
+        assert collection_dict['sar:center_frequency'] == 190e6, "Center frequency should be aggregated"
+        assert collection_dict['sar:bandwidth'] == 50e6, "Bandwidth should be aggregated"
+        
+        # Create a catalog and add our collection
+        catalog = create_catalog(
+            catalog_id="test-metadata-catalog",
+            description="Test catalog with metadata aggregation"
+        )
+        catalog.set_self_href("https://test.example.com/catalog.json")
+        catalog.add_child(collection)
+        
+        # Validate the catalog
+        catalog_dict = catalog.to_dict()
+        validator = StacValidate()
+        result = validator.validate_dict(catalog_dict)
+        if not result:
+            print(f"Catalog validation failed. Errors: {validator.message}")
+        assert result is True, f"Catalog with aggregated metadata produced invalid STAC. Errors: {getattr(validator, 'message', 'Unknown error')}"
 
     def test_invalid_stac_objects_fail_validation(self):
         """Test that invalid STAC objects are correctly rejected by the validator."""

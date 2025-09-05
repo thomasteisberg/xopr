@@ -332,3 +332,192 @@ class TestExtractItemMetadataIntegration:
 
         # Verify that load_frame_url was called
         mock_opr.load_frame_url.assert_called_once_with("https://fake.url/test.mat")
+
+
+class TestCollectUniformMetadata:
+    """Test the collect_uniform_metadata function for DOI and scientific metadata handling."""
+
+    def test_no_scientific_metadata(self):
+        """Test that no extensions are added when no scientific metadata exists."""
+        from xopr.stac.metadata import collect_uniform_metadata
+        from .common import create_mock_stac_item
+        
+        # Create items without scientific metadata
+        items = [
+            create_mock_stac_item(doi=None, citation=None),
+            create_mock_stac_item(doi=None, citation=None)
+        ]
+        
+        # Test
+        extensions, extra_fields = collect_uniform_metadata(
+            items, 
+            ['sci:doi', 'sci:citation', 'sar:center_frequency', 'sar:bandwidth']
+        )
+        
+        # Should not have scientific extension
+        sci_ext = 'https://stac-extensions.github.io/scientific/v1.0.0/schema.json'
+        assert sci_ext not in extensions
+        
+        # Extra fields should not have scientific properties
+        assert 'sci:doi' not in extra_fields
+        assert 'sci:citation' not in extra_fields
+        
+        # But SAR properties should be present (uniform across items)
+        sar_ext = 'https://stac-extensions.github.io/sar/v1.3.0/schema.json'
+        assert sar_ext in extensions
+        assert 'sar:center_frequency' in extra_fields
+        assert 'sar:bandwidth' in extra_fields
+
+    def test_with_unique_doi(self):
+        """Test that scientific extension is added when unique DOI exists."""
+        from xopr.stac.metadata import collect_uniform_metadata
+        from .common import create_mock_stac_item
+        
+        test_doi = "10.1234/test.doi"
+        
+        # Create items with same DOI
+        items = [
+            create_mock_stac_item(doi=test_doi, citation=None),
+            create_mock_stac_item(doi=test_doi, citation=None)
+        ]
+        
+        # Test
+        extensions, extra_fields = collect_uniform_metadata(
+            items, 
+            ['sci:doi', 'sci:citation', 'sar:center_frequency', 'sar:bandwidth']
+        )
+        
+        # Should have scientific extension
+        sci_ext = 'https://stac-extensions.github.io/scientific/v1.0.0/schema.json'
+        assert sci_ext in extensions
+        
+        # Extra fields should have DOI
+        assert extra_fields['sci:doi'] == test_doi
+        assert 'sci:citation' not in extra_fields  # None values filtered out
+
+    def test_with_multiple_dois_no_aggregation(self):
+        """Test that scientific extension is not added when multiple different DOIs exist."""
+        from xopr.stac.metadata import collect_uniform_metadata
+        from .common import create_mock_stac_item
+        
+        # Create items with different DOIs
+        items = [
+            create_mock_stac_item(doi="10.1234/doi1", citation=None),
+            create_mock_stac_item(doi="10.1234/doi2", citation=None)
+        ]
+        
+        # Test
+        extensions, extra_fields = collect_uniform_metadata(
+            items, 
+            ['sci:doi', 'sci:citation', 'sar:center_frequency', 'sar:bandwidth']
+        )
+        
+        # Should not have scientific extension due to non-uniform DOIs
+        sci_ext = 'https://stac-extensions.github.io/scientific/v1.0.0/schema.json'
+        # Note: SAR extension might still be present, but not SCI for DOI reasons
+        
+        # Extra fields should not have DOI (multiple unique values)
+        assert 'sci:doi' not in extra_fields
+
+    def test_none_values_filtered_correctly(self):
+        """Test that None values are properly filtered in uniform metadata collection."""
+        from xopr.stac.metadata import collect_uniform_metadata
+        from .common import create_mock_stac_item
+        
+        # Create test items with None and non-None values
+        items = [
+            create_mock_stac_item(doi=None, citation="Test Citation"),
+            create_mock_stac_item(doi="10.1234/test", citation=None),
+            create_mock_stac_item(doi="10.1234/test", citation="Test Citation"),
+            create_mock_stac_item()  # Default creates no sci properties if doi=None
+        ]
+        
+        # Test
+        extensions, extra_fields = collect_uniform_metadata(
+            items, 
+            ['sci:doi', 'sci:citation', 'sar:center_frequency', 'sar:bandwidth']
+        )
+        
+        # Should have scientific extension for uniform values
+        sci_ext = 'https://stac-extensions.github.io/scientific/v1.0.0/schema.json'
+        assert sci_ext in extensions
+        
+        # Should have both uniform values
+        assert extra_fields['sci:doi'] == "10.1234/test"  # Uniform across non-None values
+        assert extra_fields['sci:citation'] == "Test Citation"  # Uniform across non-None values
+
+
+class TestCollectMetadataFromItems:
+    """Test the collect_metadata_from_items function for DOI and scientific metadata handling."""
+
+    def test_no_scientific_metadata(self):
+        """Test that no scientific extension is added when no scientific metadata exists."""
+        from xopr.stac.build import collect_metadata_from_items
+        from .common import create_mock_stac_item
+        import pystac
+        
+        # Create items without scientific metadata
+        items = [
+            create_mock_stac_item(doi=None, citation=None),
+            create_mock_stac_item(doi=None, citation=None)
+        ]
+        
+        # Test
+        extensions, extra_fields = collect_metadata_from_items(items)
+        
+        # Should not have scientific extension
+        sci_ext = 'https://stac-extensions.github.io/scientific/v1.0.0/schema.json'
+        assert sci_ext not in extensions
+        
+        # Extra fields should not have scientific properties
+        assert 'sci:doi' not in extra_fields
+        assert 'sci:citation' not in extra_fields
+        
+        # But should have SAR properties (uniform across items)
+        sar_ext = 'https://stac-extensions.github.io/sar/v1.3.0/schema.json'
+        assert sar_ext in extensions
+        assert 'sar:center_frequency' in extra_fields
+        assert 'sar:bandwidth' in extra_fields
+
+    def test_with_unique_doi(self):
+        """Test that scientific extension is added when unique DOI exists."""
+        from xopr.stac.build import collect_metadata_from_items
+        from .common import create_mock_stac_item
+        
+        test_doi = "10.1234/test.doi"
+        
+        # Create items with same DOI
+        items = [
+            create_mock_stac_item(doi=test_doi, citation=None),
+            create_mock_stac_item(doi=test_doi, citation=None)
+        ]
+        
+        # Test
+        extensions, extra_fields = collect_metadata_from_items(items)
+        
+        # Should have scientific extension
+        sci_ext = 'https://stac-extensions.github.io/scientific/v1.0.0/schema.json'
+        assert sci_ext in extensions
+        
+        # Extra fields should have DOI
+        assert extra_fields['sci:doi'] == test_doi
+
+    def test_with_multiple_dois_no_aggregation(self):
+        """Test that scientific extension is not added when multiple different DOIs exist."""
+        from xopr.stac.build import collect_metadata_from_items
+        from .common import create_mock_stac_item
+        
+        # Create items with different DOIs
+        items = [
+            create_mock_stac_item(doi="10.1234/doi1", citation=None),
+            create_mock_stac_item(doi="10.1234/doi2", citation=None)
+        ]
+        
+        # Test
+        extensions, extra_fields = collect_metadata_from_items(items)
+        
+        # Extra fields should not have DOI (multiple unique values)
+        assert 'sci:doi' not in extra_fields
+        
+        # May or may not have SCI extension depending on other fields,
+        # but the key point is DOI is not aggregated

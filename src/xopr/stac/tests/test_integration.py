@@ -7,7 +7,7 @@ from pathlib import Path
 from xopr.stac.metadata import extract_item_metadata
 from xopr.stac.catalog import create_items_from_flight_data
 from .common import (create_mock_dataset, create_mock_metadata, 
-                     create_mock_flight_data, SCI_EXT, SAR_EXT)
+                     create_mock_flight_data, SCI_EXT, SAR_EXT, get_test_config)
 
 
 class TestSTACIntegration:
@@ -26,7 +26,7 @@ class TestSTACIntegration:
         # Test item creation with this metadata
         with patch('xopr.stac.catalog.extract_item_metadata', return_value=metadata):
             sample_flight_data = create_mock_flight_data()
-            items = create_items_from_flight_data(sample_flight_data)
+            items = create_items_from_flight_data(sample_flight_data, get_test_config())
             
             # Verify items don't have scientific properties
             assert len(items) == 2  # Two data files in sample_flight_data
@@ -55,7 +55,7 @@ class TestSTACIntegration:
         # Test item creation with this metadata
         with patch('xopr.stac.catalog.extract_item_metadata', return_value=metadata):
             sample_flight_data = create_mock_flight_data()
-            items = create_items_from_flight_data(sample_flight_data)
+            items = create_items_from_flight_data(sample_flight_data, get_test_config())
             
             # Verify items have scientific properties
             assert len(items) == 2
