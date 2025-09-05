@@ -113,7 +113,7 @@ def test_cache_data(tmp_path):
     assert len(frames) == n_frames, f"Expected {n_frames} frames for the given season and flight ID"
 
     tstart = time.time()
-    loaded_frames = opr.load_frames(frames, data_product='CSARP_qlook')
+    loaded_frames = opr.load_frames(frames, data_product='CSARP_standard') # switching until the online catalog is rebuilt # _qlook')
     t_load_first = time.time() - tstart
 
     print(f"First load time: {t_load_first:.2f} seconds")
