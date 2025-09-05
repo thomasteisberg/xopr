@@ -229,3 +229,36 @@ TEST_CITATION = "Test Citation"
 SCI_EXT = 'https://stac-extensions.github.io/scientific/v1.0.0/schema.json'
 SAR_EXT = 'https://stac-extensions.github.io/sar/v1.3.0/schema.json'
 FILE_EXT = 'https://stac-extensions.github.io/file/v2.1.0/schema.json'
+
+# Base test configuration for all STAC tests
+from omegaconf import OmegaConf
+
+BASE_CONFIG = OmegaConf.create({
+    'assets': {'base_url': "https://test.example.com/"},
+    'data': {'primary_product': 'CSARP_standard'},
+    'geometry': {'tolerance': 50},
+})
+
+def get_test_config(**overrides):
+    """Get a test configuration with optional overrides.
+    
+    Parameters
+    ----------
+    **overrides
+        Any configuration overrides to apply
+        
+    Returns
+    -------
+    OmegaConf
+        Test configuration with overrides applied
+        
+    Examples
+    --------
+    >>> config = get_test_config()  # Use base config
+    >>> config = get_test_config(geometry={'tolerance': 100})  # Override tolerance
+    >>> config = get_test_config(assets={'base_url': 'https://custom.com/'})  # Override base URL
+    """
+    config = BASE_CONFIG.copy()
+    if overrides:
+        config = OmegaConf.merge(config, OmegaConf.create(overrides))
+    return config

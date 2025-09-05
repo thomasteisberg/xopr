@@ -9,7 +9,7 @@ import pystac
 
 from xopr.stac.catalog import create_items_from_flight_data, build_collection_extent
 from .common import (create_mock_metadata, create_mock_flight_data, TEST_DOI, 
-                     TEST_CITATION, SCI_EXT, SAR_EXT)
+                     TEST_CITATION, SCI_EXT, SAR_EXT, get_test_config)
 
 
 class TestCreateItemsFromFlightData:
@@ -23,7 +23,7 @@ class TestCreateItemsFromFlightData:
         flight_data = create_mock_flight_data()
         
         # Test
-        items = create_items_from_flight_data(flight_data)
+        items = create_items_from_flight_data(flight_data, get_test_config())
         
         # Assertions
         assert len(items) == 2  # Two data files in mock flight data
@@ -49,7 +49,7 @@ class TestCreateItemsFromFlightData:
         flight_data = create_mock_flight_data()
         
         # Test
-        items = create_items_from_flight_data(flight_data)
+        items = create_items_from_flight_data(flight_data, get_test_config())
         
         # Assertions
         assert len(items) == 2
@@ -70,7 +70,7 @@ class TestCreateItemsFromFlightData:
         flight_data = create_mock_flight_data()
         
         # Test
-        items = create_items_from_flight_data(flight_data)
+        items = create_items_from_flight_data(flight_data, get_test_config())
         
         # Assertions
         assert len(items) == 2
@@ -91,7 +91,7 @@ class TestCreateItemsFromFlightData:
         flight_data = create_mock_flight_data()
         
         # Test
-        items = create_items_from_flight_data(flight_data)
+        items = create_items_from_flight_data(flight_data, get_test_config())
         
         # Assertions
         assert len(items) == 2
@@ -113,7 +113,7 @@ class TestCreateItemsFromFlightData:
         
         # Test
         with patch('builtins.print'):  # Suppress warning print
-            items = create_items_from_flight_data(flight_data)
+            items = create_items_from_flight_data(flight_data, get_test_config())
         
         # Assertions
         assert len(items) == 0  # No items should be created
@@ -126,7 +126,7 @@ class TestCreateItemsFromFlightData:
         flight_data = create_mock_flight_data()
         
         # Test
-        items = create_items_from_flight_data(flight_data)
+        items = create_items_from_flight_data(flight_data, get_test_config())
         
         # Assertions
         assert len(items) == 2
