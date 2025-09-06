@@ -5,7 +5,6 @@ Primary workflow: Build parquet collections in parallel, then aggregate with agg
 """
 
 import argparse
-import gc
 import logging
 import re
 import sys
@@ -89,14 +88,6 @@ def build_collection_parallel(campaign_path: Path, conf: DictConfig, client: Cli
     
     print(f"✅ Processed {len(all_items)} total items from {completed_count} flights")
     
-    # Explicit cleanup of futures to free worker memory
-    for future in futures:
-        client.cancel(future)  # Tell scheduler to release data
-    futures.clear()  # Clear local references
-    
-    # Trigger garbage collection on all workers (synchronous but fast)
-    client.run(gc.collect)  # Cleanup worker memory
-    
     if not all_items:
         print(f"❌ No items created for campaign {campaign_name}")
         return None
@@ -179,11 +170,22 @@ def process_catalog(conf: DictConfig):
             
             # Process each campaign
             results = []
-            for campaign in campaigns:
+            for i, campaign in enumerate(campaigns):
                 try:
                     path = build_collection_parallel(Path(campaign['path']), conf, client)
                     if path:
                         results.append(path)
+                        
+                    # Restart cluster between campaigns (except after the last one)
+                    if i < len(campaigns) - 1:
+                        next_campaign = campaigns[i + 1]['name']
+                        print(f"\n🔄 Restarting Dask cluster to clear memory before {next_campaign}...")
+                        restart_start_time = time.time()
+                        client.restart()
+                        restart_time = time.time() - restart_start_time
+                        print(f"   Cluster restart completed in {restart_time:.1f} seconds")
+                        print(f"   Workers ready for {next_campaign}\n")
+                        
                 except Exception as e:
                     logging.error(f"Failed {campaign['name']}: {e}")
     finally:
