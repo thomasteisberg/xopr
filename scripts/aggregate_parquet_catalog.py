@@ -87,7 +87,6 @@ Examples:
         output_file=catalog_path,
         catalog_id=conf.output.catalog_id,
         catalog_description=conf.output.catalog_description,
-        base_url=conf.assets.get('base_url'),  # Include base_url if needed
         verbose=conf.logging.verbose
     )
     
