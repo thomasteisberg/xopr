@@ -58,8 +58,12 @@ def load_config(
     if not config_path.exists():
         raise FileNotFoundError(f"Configuration file not found: {config_path}")
     
-    # Load base configuration
-    conf = OmegaConf.load(config_path)
+    # Start with default configuration
+    conf = get_default_config()
+    
+    # Load user configuration and merge with defaults
+    user_conf = OmegaConf.load(config_path)
+    conf = OmegaConf.merge(conf, user_conf)
     
     # Apply environment-specific overrides if specified
     if environment and "environments" in conf:
