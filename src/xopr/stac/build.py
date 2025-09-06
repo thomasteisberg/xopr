@@ -335,7 +335,6 @@ def build_catalog_from_parquet_metadata(
     output_file: Path,
     catalog_id: str = "OPR",
     catalog_description: str = "Open Polar Radar airborne data",
-    base_url: Optional[str] = None,
     verbose: bool = False
 ) -> None:
     """
@@ -421,7 +420,7 @@ def build_catalog_from_parquet_metadata(
                 'links': [],  # Clear links as we'll build our own
                 'assets': {
                     'data': {
-                        'href': f"./{parquet_path.name}" if not base_url else f"{base_url}/{parquet_path.name}",
+                        'href': f"./{parquet_path.name}",
                         'type': 'application/vnd.apache.parquet',
                         'title': 'Collection data in Apache Parquet format',
                         'roles': ['data']
