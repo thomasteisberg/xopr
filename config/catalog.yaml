@@ -5,7 +5,7 @@ version: "1.0.0"
 
 # Data source and filtering
 data:
-  root: "/data/opr"
+  root: "/kucresis/scratch/dataproducts/public/data/rds"
   primary_product: "CSARP_standard"
   extra_products:
     - "CSARP_layer"
