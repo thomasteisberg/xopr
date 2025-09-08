@@ -17,11 +17,14 @@ project:
         - file: notebooks/search_and_scaling.ipynb
         - file: notebooks/reading_params.ipynb
         - file: notebooks/crossovers.ipynb
+        - file: notebooks/test_polar_map.ipynb
+        - file: notebooks/test_polar_map_working.md
     
 site:
   template: book-theme
   options:
     logo_text: xopr Documentation
+    static_dir: _static
   #   favicon: favicon.ico
   #   logo: site_logo.png
 
