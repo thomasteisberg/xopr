@@ -181,20 +181,45 @@ jobs:
         # Push to GitHub
         git push origin $PREVIEW_BRANCH --force
         
-        # Now deploy the same content to Surge
+        # Now deploy the same content to Surge with proper structure
         echo "Deploying to Surge.sh..."
         npm install -g surge
         
-        # Deploy current directory (which has the extracted HTML) to Surge
+        # Create deployment structure with /xopr/ subdirectory to match asset paths
+        mkdir -p /tmp/surge-deploy/xopr
+        cp -r . /tmp/surge-deploy/xopr/
+        
+        # Create redirect index at root that adds trailing slash
+        cat > /tmp/surge-deploy/index.html << 'EOF'
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <script>
+            // Redirect to /xopr/ with trailing slash
+            window.location.href = '/xopr/';
+          </script>
+          <meta http-equiv="refresh" content="0; url=/xopr/">
+        </head>
+        <body>
+          Redirecting to <a href="/xopr/">documentation</a>...
+        </body>
+        </html>
+        EOF
+        
+        # Create 200.html for Surge SPA support (handles client-side routing)
+        cp /tmp/surge-deploy/xopr/index.html /tmp/surge-deploy/200.html || true
+        
+        # Deploy with proper structure
         SURGE_DOMAIN="xopr-pr-${{ github.event.pull_request.number }}.surge.sh"
         
-        # Deploy with explicit project path (current dir with extracted HTML)
+        cd /tmp/surge-deploy
         surge . $SURGE_DOMAIN --token ${{ secrets.SURGE_TOKEN }} || {
           echo "::warning::Surge deployment failed"
           echo "surge_url=" >> $GITHUB_OUTPUT
+          exit 0
         }
         
-        echo "surge_url=https://$SURGE_DOMAIN" >> $GITHUB_OUTPUT
+        echo "surge_url=https://$SURGE_DOMAIN/xopr/" >> $GITHUB_OUTPUT
         echo "preview_branch=$PREVIEW_BRANCH" >> $GITHUB_OUTPUT
     
     - name: Comment on PR
