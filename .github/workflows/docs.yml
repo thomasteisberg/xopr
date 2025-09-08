@@ -120,27 +120,61 @@ jobs:
       with:
         path: docs/_build/html
 
-  # Deploy PR Preview to Surge.sh
+  # Deploy PR Preview to GitHub Pages branch
   pr-preview:
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     needs: build
     steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      with:
+        token: ${{ secrets.GITHUB_TOKEN }}
+        fetch-depth: 0
+    
     - name: Download docs artifact
       uses: actions/download-artifact@v4
       with:
         name: docs-html-${{ github.sha }}
         path: ./docs-preview
     
-    - name: Deploy to Surge.sh
-      id: surge_deploy
+    - name: Deploy to GitHub Pages branch
+      id: gh_pages_deploy
       run: |
-        npm install -g surge
-        # Deploy with PR-specific URL
-        SURGE_DOMAIN="xopr-pr-${{ github.event.pull_request.number }}.surge.sh"
-        surge ./docs-preview $SURGE_DOMAIN --token ${{ secrets.SURGE_TOKEN }} || echo "::warning::Surge deployment failed. You may need to set up SURGE_TOKEN secret."
-        echo "surge_url=https://$SURGE_DOMAIN" >> $GITHUB_OUTPUT
-      continue-on-error: true
+        # Configure git
+        git config user.name "GitHub Actions"
+        git config user.email "actions@github.com"
+        
+        # Create or checkout the PR preview branch
+        PREVIEW_BRANCH="pr-preview-${{ github.event.pull_request.number }}"
+        
+        # Check if branch exists on remote
+        if git ls-remote --heads origin $PREVIEW_BRANCH | grep -q $PREVIEW_BRANCH; then
+          echo "Branch $PREVIEW_BRANCH exists, fetching and checking out"
+          git fetch origin $PREVIEW_BRANCH:$PREVIEW_BRANCH
+          git checkout $PREVIEW_BRANCH
+        else
+          echo "Creating new orphan branch $PREVIEW_BRANCH"
+          git checkout --orphan $PREVIEW_BRANCH
+        fi
+        
+        # Clean the branch
+        git rm -rf . 2>/dev/null || true
+        
+        # Copy the built docs
+        cp -r ./docs-preview/* .
+        
+        # Add all files
+        git add -A
+        
+        # Commit (allow empty in case nothing changed)
+        git commit -m "Deploy PR #${{ github.event.pull_request.number }} preview - commit ${{ github.sha }}" --allow-empty
+        
+        # Push to GitHub
+        git push origin $PREVIEW_BRANCH --force
+        
+        # Set output for the URL
+        echo "preview_url=https://thomasteisberg.github.io/xopr/pr-preview-${{ github.event.pull_request.number }}/" >> $GITHUB_OUTPUT
     
     - name: Comment on PR
       uses: actions/github-script@v7
@@ -149,15 +183,14 @@ jobs:
           const prNumber = context.issue.number;
           const sha = context.sha.substring(0, 7);
           const artifactUrl = `https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${{ github.run_id }}`;
+          const previewUrl = '${{ steps.gh_pages_deploy.outputs.preview_url }}';
           
           let body = `## 📚 Documentation Preview Ready!\n\n`;
           
-          // Check if Surge deployment succeeded
-          const surgeUrl = '${{ steps.surge_deploy.outputs.surge_url }}';
-          if (surgeUrl && !surgeUrl.includes('::warning::')) {
-            body += `### 🌐 Live Preview\n**URL:** ${surgeUrl}\n\n`;
-          } else {
-            body += `### ⚠️ Surge.sh deployment not configured\nTo enable live previews, [set up a SURGE_TOKEN secret](https://github.com/${context.repo.owner}/${context.repo.repo}/settings/secrets/actions)\n\n`;
+          // Add GitHub Pages preview URL
+          if (previewUrl) {
+            body += `### 🌐 Live Preview\n**URL:** ${previewUrl}\n\n`;
+            body += `*Note: It may take a few minutes for GitHub Pages to update.*\n\n`;
           }
           
           body += `### 📦 Download Preview\n`;
