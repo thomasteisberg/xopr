@@ -5,13 +5,14 @@ on:
     branches: [ main ]
   pull_request:
     branches: [ main ]
+    types: [opened, synchronize, reopened, labeled]
   workflow_dispatch:
 
 permissions:
   contents: read
   pages: write
   id-token: write
-  pull-requests: write  # Added for PR comments
+  pull-requests: write
 
 concurrency:
   group: "pages"
@@ -120,77 +121,36 @@ jobs:
       with:
         path: docs/_build/html
 
-  # Deploy PR Preview to GitHub Pages branch
+  # Deploy PR Preview directly to Surge (no branch creation)
   pr-preview:
-    if: github.event_name == 'pull_request'
+    # Only run if PR has 'preview-docs' label OR if manually triggered
+    if: |
+      github.event_name == 'pull_request' && 
+      (contains(github.event.pull_request.labels.*.name, 'preview-docs') || 
+       github.event.action == 'labeled' && github.event.label.name == 'preview-docs')
     runs-on: ubuntu-latest
     needs: build
     permissions:
-      contents: write
       pull-requests: write
     steps:
-    - name: Checkout repository
-      uses: actions/checkout@v4
-      with:
-        token: ${{ secrets.GITHUB_TOKEN }}
-        fetch-depth: 0
-    
     - name: Download docs artifact
       uses: actions/download-artifact@v4
       with:
         name: docs-html-${{ github.sha }}
-        path: ./docs-preview
+        path: ./docs-html
     
-    - name: Deploy to GitHub Pages branch and Surge
-      id: deploy_preview
+    - name: Deploy to Surge.sh
+      id: surge_deploy
       run: |
-        # Configure git
-        git config user.name "GitHub Actions"
-        git config user.email "actions@github.com"
-        
-        # Create or checkout the PR preview branch
-        PREVIEW_BRANCH="pr-preview-${{ github.event.pull_request.number }}"
-        
-        # Save docs-preview to a temp location
-        mv ./docs-preview /tmp/docs-preview-backup
-        
-        # Check if branch exists on remote
-        if git ls-remote --heads origin $PREVIEW_BRANCH | grep -q $PREVIEW_BRANCH; then
-          echo "Branch $PREVIEW_BRANCH exists, fetching and checking out"
-          git fetch origin $PREVIEW_BRANCH:$PREVIEW_BRANCH
-          # Clean working directory first, then force checkout
-          git clean -fdx
-          git checkout -f $PREVIEW_BRANCH
-        else
-          echo "Creating new orphan branch $PREVIEW_BRANCH"
-          git checkout --orphan $PREVIEW_BRANCH
-        fi
-        
-        # Clean the branch
-        git rm -rf . 2>/dev/null || true
-        
-        # Copy the built docs from backup location
-        cp -r /tmp/docs-preview-backup/* .
-        
-        # Add all files
-        git add -A
-        
-        # Commit (allow empty in case nothing changed)
-        git commit -m "Deploy PR #${{ github.event.pull_request.number }} preview - commit ${{ github.sha }}" --allow-empty
-        
-        # Push to GitHub
-        git push origin $PREVIEW_BRANCH --force
-        
-        # Now deploy the same content to Surge with proper structure
-        echo "Deploying to Surge.sh..."
+        # Install Surge
         npm install -g surge
         
         # Create deployment structure with /xopr/ subdirectory to match asset paths
-        mkdir -p /tmp/surge-deploy/xopr
-        cp -r . /tmp/surge-deploy/xopr/
+        mkdir -p surge-deploy/xopr
+        cp -r ./docs-html/* surge-deploy/xopr/
         
         # Create redirect index at root that adds trailing slash
-        cat > /tmp/surge-deploy/index.html << 'EOF'
+        cat > surge-deploy/index.html << 'EOF'
         <!DOCTYPE html>
         <html>
         <head>
@@ -207,53 +167,50 @@ jobs:
         EOF
         
         # Create 200.html for Surge SPA support (handles client-side routing)
+        # This ensures URLs without trailing slashes work correctly
         # Need 200.html in both root and /xopr/ directory for proper routing
-        cp /tmp/surge-deploy/xopr/index.html /tmp/surge-deploy/200.html || true
-        cp /tmp/surge-deploy/xopr/index.html /tmp/surge-deploy/xopr/200.html || true
+        cp surge-deploy/xopr/index.html surge-deploy/200.html 2>/dev/null || true
+        cp surge-deploy/xopr/index.html surge-deploy/xopr/200.html 2>/dev/null || true
         
-        # Deploy with proper structure
+        # Deploy to Surge
         SURGE_DOMAIN="xopr-pr-${{ github.event.pull_request.number }}.surge.sh"
         
-        cd /tmp/surge-deploy
+        cd surge-deploy
         surge . $SURGE_DOMAIN --token ${{ secrets.SURGE_TOKEN }} || {
-          echo "::warning::Surge deployment failed"
+          echo "::warning::Surge deployment failed. Check if SURGE_TOKEN is configured."
           echo "surge_url=" >> $GITHUB_OUTPUT
           exit 0
         }
         
         echo "surge_url=https://$SURGE_DOMAIN/xopr/" >> $GITHUB_OUTPUT
-        echo "preview_branch=$PREVIEW_BRANCH" >> $GITHUB_OUTPUT
+        echo "Deployment successful to: https://$SURGE_DOMAIN/xopr/"
     
-    - name: Comment on PR
+    - name: Comment on PR with preview link
       uses: actions/github-script@v7
       with:
         script: |
           const prNumber = context.issue.number;
           const sha = context.sha.substring(0, 7);
           const artifactUrl = `https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${{ github.run_id }}`;
-          const surgeUrl = '${{ steps.deploy_preview.outputs.surge_url }}';
-          const previewBranch = '${{ steps.deploy_preview.outputs.preview_branch }}';
+          const surgeUrl = '${{ steps.surge_deploy.outputs.surge_url }}';
           
           let body = `## 📚 Documentation Preview Ready!\n\n`;
           
           // Add Surge preview URL if available
           if (surgeUrl && surgeUrl !== '') {
-            body += `### 🌐 Live Preview\n**URL:** ${surgeUrl}\n\n`;
+            body += `### 🌐 Live Preview\n`;
+            body += `**URL:** ${surgeUrl}\n\n`;
+            body += `*Preview updates automatically with new commits while the \`preview-docs\` label is present.*\n\n`;
           } else {
             body += `### ⚠️ Surge deployment not available\n`;
-            body += `Please check the [workflow logs](${artifactUrl}) or set up SURGE_TOKEN secret.\n\n`;
+            body += `Please check the [workflow logs](${artifactUrl}) or ensure SURGE_TOKEN secret is configured.\n\n`;
           }
           
-          // Add link to preview branch
-          if (previewBranch) {
-            body += `### 🌿 Preview Branch\n`;
-            body += `Preview content stored in branch: [\`${previewBranch}\`](https://github.com/${context.repo.owner}/${context.repo.repo}/tree/${previewBranch})\n\n`;
-          }
-          
-          body += `### 📦 Download Preview\n`;
-          body += `You can download the preview artifact [here](${artifactUrl}) for local viewing.\n\n`;
+          body += `### 📦 Download Artifact\n`;
+          body += `You can also [download the docs](${artifactUrl}) for local viewing.\n\n`;
           body += `**Commit:** \`${sha}\`\n\n`;
-          body += `---\n*This preview will be updated automatically with new commits.*`;
+          body += `---\n`;
+          body += `*To trigger a preview, add the \`preview-docs\` label or use the \`/preview\` command.*`;
           
           // Find and update existing comment or create new one
           const { data: comments } = await github.rest.issues.listComments({

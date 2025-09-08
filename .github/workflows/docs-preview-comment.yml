@@ -1,0 +1,193 @@
+name: Deploy Docs Preview on Comment
+
+on:
+  issue_comment:
+    types: [created]
+
+permissions:
+  pull-requests: write
+  contents: read
+  actions: read
+
+jobs:
+  check-comment:
+    # Only run on PR comments with /preview command
+    if: |
+      github.event.issue.pull_request && 
+      (contains(github.event.comment.body, '/preview') || 
+       contains(github.event.comment.body, '/deploy-docs'))
+    runs-on: ubuntu-latest
+    outputs:
+      should_deploy: ${{ steps.check.outputs.should_deploy }}
+      pr_number: ${{ steps.check.outputs.pr_number }}
+      pr_sha: ${{ steps.check.outputs.pr_sha }}
+    steps:
+    - name: Check comment and get PR info
+      id: check
+      uses: actions/github-script@v7
+      with:
+        script: |
+          const comment = context.payload.comment.body;
+          const prNumber = context.issue.number;
+          
+          // Check if comment contains the trigger command
+          if (!comment.includes('/preview') && !comment.includes('/deploy-docs')) {
+            core.setOutput('should_deploy', 'false');
+            return;
+          }
+          
+          // Get PR details
+          const { data: pr } = await github.rest.pulls.get({
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            pull_number: prNumber
+          });
+          
+          core.setOutput('should_deploy', 'true');
+          core.setOutput('pr_number', prNumber);
+          core.setOutput('pr_sha', pr.head.sha);
+          
+          // React to the comment with rocket emoji to acknowledge
+          await github.rest.reactions.createForIssueComment({
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            comment_id: context.payload.comment.id,
+            content: 'rocket'
+          });
+          
+          // Post initial status comment
+          await github.rest.issues.createComment({
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            issue_number: prNumber,
+            body: `🚀 Starting documentation preview deployment for commit \`${pr.head.sha.substring(0, 7)}\`...\n\nThis may take a few minutes. I'll update this comment when ready.`
+          });
+
+  deploy-preview:
+    needs: check-comment
+    if: needs.check-comment.outputs.should_deploy == 'true'
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout PR
+      uses: actions/checkout@v4
+      with:
+        ref: ${{ needs.check-comment.outputs.pr_sha }}
+    
+    - name: Install uv
+      uses: astral-sh/setup-uv@v4
+    
+    - name: Set up Python
+      run: uv python install
+    
+    - name: Install dependencies
+      run: uv sync --extra docs
+    
+    - name: Build Jupyter Book
+      run: |
+        cd docs
+        uv run --extra docs jupyter-book build --html --execute
+    
+    # Copy map assets if they exist
+    - name: Copy map assets
+      run: |
+        if [ -d "src/xopr/map" ]; then
+          echo "Copying map assets from src/xopr/map..."
+          mkdir -p docs/_build/html/_static/maps
+          cp -f src/xopr/map/polar.html docs/_build/html/_static/maps/ 2>/dev/null || true
+          cp -f src/xopr/map/parquet_wasm.js docs/_build/html/_static/maps/ 2>/dev/null || true
+          cp -f src/xopr/map/parquet_wasm_bg.wasm docs/_build/html/_static/maps/ 2>/dev/null || true
+          cp -f src/xopr/map/*.parquet docs/_build/html/_static/maps/ 2>/dev/null || true
+        fi
+    
+    - name: Deploy to Surge
+      id: surge_deploy
+      run: |
+        # Install Surge
+        npm install -g surge
+        
+        # Create deployment structure with /xopr/ subdirectory
+        mkdir -p surge-deploy/xopr
+        cp -r docs/_build/html/* surge-deploy/xopr/
+        
+        # Create redirect index at root
+        cat > surge-deploy/index.html << 'EOF'
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <script>
+            window.location.href = '/xopr/';
+          </script>
+          <meta http-equiv="refresh" content="0; url=/xopr/">
+        </head>
+        <body>
+          Redirecting to <a href="/xopr/">documentation</a>...
+        </body>
+        </html>
+        EOF
+        
+        # Create 200.html for SPA support in both locations
+        cp surge-deploy/xopr/index.html surge-deploy/200.html 2>/dev/null || true
+        cp surge-deploy/xopr/index.html surge-deploy/xopr/200.html 2>/dev/null || true
+        
+        # Deploy to Surge
+        SURGE_DOMAIN="xopr-pr-${{ needs.check-comment.outputs.pr_number }}.surge.sh"
+        
+        cd surge-deploy
+        surge . $SURGE_DOMAIN --token ${{ secrets.SURGE_TOKEN }} || {
+          echo "surge_failed=true" >> $GITHUB_OUTPUT
+          exit 0
+        }
+        
+        echo "surge_url=https://$SURGE_DOMAIN/xopr/" >> $GITHUB_OUTPUT
+    
+    - name: Update comment with result
+      uses: actions/github-script@v7
+      with:
+        script: |
+          const prNumber = ${{ needs.check-comment.outputs.pr_number }};
+          const sha = '${{ needs.check-comment.outputs.pr_sha }}'.substring(0, 7);
+          const surgeUrl = '${{ steps.surge_deploy.outputs.surge_url }}';
+          const surgeFailed = '${{ steps.surge_deploy.outputs.surge_failed }}';
+          
+          let body;
+          if (surgeFailed === 'true' || !surgeUrl) {
+            body = `❌ Documentation preview deployment failed for commit \`${sha}\`.\n\n`;
+            body += `Please check the [workflow logs](https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${{ github.run_id }}) for details.`;
+          } else {
+            body = `## ✅ Documentation Preview Ready!\n\n`;
+            body += `### 🌐 Live Preview\n`;
+            body += `**URL:** ${surgeUrl}\n\n`;
+            body += `**Commit:** \`${sha}\`\n\n`;
+            body += `---\n`;
+            body += `*Preview deployed via \`/preview\` command by @${context.actor}*`;
+          }
+          
+          // Find the status comment we created earlier
+          const { data: comments } = await github.rest.issues.listComments({
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            issue_number: prNumber
+          });
+          
+          const statusComment = comments.find(comment => 
+            comment.user.login === 'github-actions[bot]' && 
+            comment.body.includes('Starting documentation preview deployment')
+          );
+          
+          if (statusComment) {
+            // Update the existing comment
+            await github.rest.issues.updateComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              comment_id: statusComment.id,
+              body: body
+            });
+          } else {
+            // Create a new comment if we couldn't find the status comment
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: prNumber,
+              body: body
+            });
+          }

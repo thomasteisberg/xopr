@@ -1,0 +1,245 @@
+name: Update Changelog
+
+on:
+  push:
+    tags:
+      - "0.*.*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag to generate changelog for'
+        required: true
+        type: string
+
+jobs:
+  test:
+    uses: ./.github/workflows/test.yml
+
+  update-changelog:
+    needs: test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: read
+    outputs:
+      release_tag: ${{ steps.create_tag.outputs.release_tag }}
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+        token: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Get tag name
+      id: get_tag
+      run: |
+        if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+          echo "tag=${{ inputs.tag }}" >> $GITHUB_OUTPUT
+        else
+          echo "tag=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+        fi
+
+    - name: Get previous tag
+      id: get_previous_tag
+      run: |
+        PREV_TAG=$(git describe --tags --abbrev=0 ${{ steps.get_tag.outputs.tag }}^ 2>/dev/null || echo "")
+        echo "previous_tag=$PREV_TAG" >> $GITHUB_OUTPUT
+        echo "Previous tag: $PREV_TAG"
+
+    - name: Generate changelog entry
+      id: generate_changelog
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        CURRENT_TAG: ${{ steps.get_tag.outputs.tag }}
+        PREVIOUS_TAG: ${{ steps.get_previous_tag.outputs.previous_tag }}
+      run: |
+        echo "Generating changelog for $CURRENT_TAG"
+        
+        # Get the date for the current tag
+        TAG_DATE=$(git log -1 --format=%cd --date=short $CURRENT_TAG 2>/dev/null || date +%Y-%m-%d)
+        
+        # Create temporary file for the new changelog entry
+        NEW_ENTRY_FILE=$(mktemp)
+        
+        # Header for the new version
+        echo "## [$CURRENT_TAG] - $TAG_DATE" > $NEW_ENTRY_FILE
+        echo "" >> $NEW_ENTRY_FILE
+        
+        if [ -n "$PREVIOUS_TAG" ]; then
+          echo "Getting PRs merged between $PREVIOUS_TAG and $CURRENT_TAG"
+          
+          # Get the date of the previous tag for API filtering (use unix timestamp for easier comparison)
+          PREV_TAG_DATE=$(git log -1 --format=%ct $PREVIOUS_TAG 2>/dev/null)
+          CURRENT_TAG_DATE=$(git log -1 --format=%ct $CURRENT_TAG 2>/dev/null)
+          
+          echo "Previous tag date: $PREV_TAG_DATE"
+          echo "Current tag date: $CURRENT_TAG_DATE"
+          
+          # Get merged PRs in the date range using GitHub API
+          if [ -n "$PREV_TAG_DATE" ] && [ -n "$CURRENT_TAG_DATE" ]; then
+            echo "Fetching merged PRs from GitHub API..."
+            
+            # Use GitHub CLI to get merged PRs and filter by date using shell
+            TEMP_PR_FILE=$(mktemp)
+            gh api graphql \
+              -f query='
+                query($owner: String!, $repo: String!) {
+                  repository(owner: $owner, name: $repo) {
+                    pullRequests(states: MERGED, first: 100, orderBy: {field: UPDATED_AT, direction: DESC}) {
+                      edges {
+                        node {
+                          number
+                          title
+                          author {
+                            login
+                          }
+                          url
+                          mergedAt
+                        }
+                      }
+                    }
+                  }
+                }' \
+              -f owner="${{ github.repository_owner }}" \
+              -f repo="${{ github.event.repository.name }}" \
+              -q '.data.repository.pullRequests.edges[].node | "- " + .title + " ([#" + (.number | tostring) + "](" + .url + ")) by @" + .author.login + "|" + .mergedAt' > $TEMP_PR_FILE
+            
+            # Filter PRs by date range and format output  
+            while IFS='|' read -r pr_line merge_date; do
+              if [[ -n "$merge_date" && -n "$PREV_TAG_DATE" && -n "$CURRENT_TAG_DATE" ]]; then
+                # Convert GitHub API date to unix timestamp for comparison
+                merge_timestamp=$(date -d "$merge_date" +%s 2>/dev/null || echo "0")
+                if [[ "$merge_timestamp" -ge "$PREV_TAG_DATE" && "$merge_timestamp" -le "$CURRENT_TAG_DATE" ]]; then
+                  echo "$pr_line" >> $NEW_ENTRY_FILE
+                fi
+              fi
+            done < $TEMP_PR_FILE
+            
+            rm -f $TEMP_PR_FILE
+          fi
+          
+          # If no PRs found, fall back to commit messages
+          if ! grep -q "^-" $NEW_ENTRY_FILE; then
+            echo "No PRs found in commit range, using commit messages instead"
+            git log ${PREVIOUS_TAG}..${CURRENT_TAG} --pretty=format:"- %s (%h)" --no-merges >> $NEW_ENTRY_FILE
+          fi
+          
+        else
+          echo "- Initial release" >> $NEW_ENTRY_FILE
+        fi
+        
+        echo "" >> $NEW_ENTRY_FILE
+        
+        # Store the new entry file path
+        echo "new_entry_file=$NEW_ENTRY_FILE" >> $GITHUB_OUTPUT
+
+    - name: Update CHANGELOG.md
+      run: |
+        NEW_ENTRY_FILE="${{ steps.generate_changelog.outputs.new_entry_file }}"
+        
+        if [ -f "CHANGELOG.md" ]; then
+          # Create temporary file for updated changelog
+          TEMP_CHANGELOG=$(mktemp)
+          
+          # Find the line with "## [Unreleased]" and add new entry after it
+          awk '
+            /^## \[Unreleased\]/ {
+              print $0
+              print ""
+              while ((getline line < "'"$NEW_ENTRY_FILE"'") > 0) {
+                print line
+              }
+              next
+            }
+            { print }
+          ' CHANGELOG.md > $TEMP_CHANGELOG
+          
+          # Replace original with updated version
+          mv $TEMP_CHANGELOG CHANGELOG.md
+          
+          # Clean up
+          rm -f $NEW_ENTRY_FILE
+          
+        else
+          echo "Warning: CHANGELOG.md not found, creating new one"
+          cat > CHANGELOG.md << 'EOF'
+        # Changelog
+
+        All notable changes to this project will be documented in this file.
+
+        The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
+        and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+        ## [Unreleased]
+
+        - Upcoming features and fixes
+
+        EOF
+          cat $NEW_ENTRY_FILE >> CHANGELOG.md
+          rm -f $NEW_ENTRY_FILE
+        fi
+
+    - name: Commit changelog update and create release tag
+      id: create_tag
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      run: |
+        git config --local user.name "github-actions[bot]"
+        git config --local user.email "github-actions[bot]@users.noreply.github.com"
+        
+        # Switch to main branch and pull latest changes
+        git checkout main
+        git pull origin main
+        
+        if git diff --quiet CHANGELOG.md; then
+          echo "No changes to CHANGELOG.md, but creating release tag anyway"
+        else
+          git add CHANGELOG.md
+          git commit -m "docs: update CHANGELOG.md for ${{ steps.get_tag.outputs.tag }}"
+          git push origin main
+          echo "✅ CHANGELOG.md updated and pushed to main branch"
+        fi
+        
+        # Output the tag for the publish job
+        RELEASE_TAG="${{ steps.get_tag.outputs.tag }}"
+        echo "release_tag=$RELEASE_TAG" >> $GITHUB_OUTPUT
+        echo "✅ Tag $RELEASE_TAG is ready for publishing"
+
+    - name: Update release notes
+      if: github.event_name == 'push'
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      run: |
+        # Extract the changelog section for this release
+        TAG="${{ steps.get_tag.outputs.tag }}"
+        
+        # Get the section for this release from CHANGELOG.md
+        awk "/^## \[$TAG\]/, /^## \[.*\]/ {
+          if (/^## \[$TAG\]/) { found=1; print; next }
+          if (/^## \[.*\]/ && found) { exit }
+          if (found) print
+        }" CHANGELOG.md > release_notes.md
+        
+        # Remove trailing empty lines
+        sed -i '/^$/N;/^\n$/d' release_notes.md
+        
+        # Add installation instructions
+        echo "" >> release_notes.md
+        echo "## Installation" >> release_notes.md
+        echo '```bash' >> release_notes.md
+        echo "pip install xopr==$TAG" >> release_notes.md
+        echo '```' >> release_notes.md
+        
+        # Update the release with the new notes
+        gh release edit "$TAG" --notes-file release_notes.md || echo "Release not found or already has notes"
+
+  publish:
+    needs: update-changelog
+    if: needs.update-changelog.outputs.release_tag != ''
+    uses: ./.github/workflows/publish.yml
+    with:
+      tag: ${{ needs.update-changelog.outputs.release_tag }}
+    permissions:
+      contents: write
+      id-token: write
