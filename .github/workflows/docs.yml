@@ -141,8 +141,8 @@ jobs:
         name: docs-html-${{ github.sha }}
         path: ./docs-preview
     
-    - name: Deploy to GitHub Pages branch
-      id: gh_pages_deploy
+    - name: Deploy to GitHub Pages branch and Surge
+      id: deploy_preview
       run: |
         # Configure git
         git config user.name "GitHub Actions"
@@ -176,8 +176,21 @@ jobs:
         # Push to GitHub
         git push origin $PREVIEW_BRANCH --force
         
-        # Set output for the URL
-        echo "preview_url=https://thomasteisberg.github.io/xopr/pr-preview-${{ github.event.pull_request.number }}/" >> $GITHUB_OUTPUT
+        # Now deploy the same content to Surge
+        echo "Deploying to Surge.sh..."
+        npm install -g surge
+        
+        # Deploy current directory (which has the extracted HTML) to Surge
+        SURGE_DOMAIN="xopr-pr-${{ github.event.pull_request.number }}.surge.sh"
+        
+        # Deploy with explicit project path (current dir with extracted HTML)
+        surge . $SURGE_DOMAIN --token ${{ secrets.SURGE_TOKEN }} || {
+          echo "::warning::Surge deployment failed"
+          echo "surge_url=" >> $GITHUB_OUTPUT
+        }
+        
+        echo "surge_url=https://$SURGE_DOMAIN" >> $GITHUB_OUTPUT
+        echo "preview_branch=$PREVIEW_BRANCH" >> $GITHUB_OUTPUT
     
     - name: Comment on PR
       uses: actions/github-script@v7
@@ -186,14 +199,23 @@ jobs:
           const prNumber = context.issue.number;
           const sha = context.sha.substring(0, 7);
           const artifactUrl = `https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${{ github.run_id }}`;
-          const previewUrl = '${{ steps.gh_pages_deploy.outputs.preview_url }}';
+          const surgeUrl = '${{ steps.deploy_preview.outputs.surge_url }}';
+          const previewBranch = '${{ steps.deploy_preview.outputs.preview_branch }}';
           
           let body = `## 📚 Documentation Preview Ready!\n\n`;
           
-          // Add GitHub Pages preview URL
-          if (previewUrl) {
-            body += `### 🌐 Live Preview\n**URL:** ${previewUrl}\n\n`;
-            body += `*Note: It may take a few minutes for GitHub Pages to update.*\n\n`;
+          // Add Surge preview URL if available
+          if (surgeUrl && surgeUrl !== '') {
+            body += `### 🌐 Live Preview\n**URL:** ${surgeUrl}\n\n`;
+          } else {
+            body += `### ⚠️ Surge deployment not available\n`;
+            body += `Please check the [workflow logs](${artifactUrl}) or set up SURGE_TOKEN secret.\n\n`;
+          }
+          
+          // Add link to preview branch
+          if (previewBranch) {
+            body += `### 🌿 Preview Branch\n`;
+            body += `Preview content stored in branch: [\`${previewBranch}\`](https://github.com/${context.repo.owner}/${context.repo.repo}/tree/${previewBranch})\n\n`;
           }
           
           body += `### 📦 Download Preview\n`;
