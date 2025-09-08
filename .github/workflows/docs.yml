@@ -151,11 +151,16 @@ jobs:
         # Create or checkout the PR preview branch
         PREVIEW_BRANCH="pr-preview-${{ github.event.pull_request.number }}"
         
+        # Save docs-preview to a temp location
+        mv ./docs-preview /tmp/docs-preview-backup
+        
         # Check if branch exists on remote
         if git ls-remote --heads origin $PREVIEW_BRANCH | grep -q $PREVIEW_BRANCH; then
           echo "Branch $PREVIEW_BRANCH exists, fetching and checking out"
           git fetch origin $PREVIEW_BRANCH:$PREVIEW_BRANCH
-          git checkout $PREVIEW_BRANCH
+          # Clean working directory first, then force checkout
+          git clean -fdx
+          git checkout -f $PREVIEW_BRANCH
         else
           echo "Creating new orphan branch $PREVIEW_BRANCH"
           git checkout --orphan $PREVIEW_BRANCH
@@ -164,8 +169,8 @@ jobs:
         # Clean the branch
         git rm -rf . 2>/dev/null || true
         
-        # Copy the built docs
-        cp -r ./docs-preview/* .
+        # Copy the built docs from backup location
+        cp -r /tmp/docs-preview-backup/* .
         
         # Add all files
         git add -A
