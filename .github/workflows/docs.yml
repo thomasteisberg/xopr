@@ -207,7 +207,9 @@ jobs:
         EOF
         
         # Create 200.html for Surge SPA support (handles client-side routing)
+        # Need 200.html in both root and /xopr/ directory for proper routing
         cp /tmp/surge-deploy/xopr/index.html /tmp/surge-deploy/200.html || true
+        cp /tmp/surge-deploy/xopr/index.html /tmp/surge-deploy/xopr/200.html || true
         
         # Deploy with proper structure
         SURGE_DOMAIN="xopr-pr-${{ github.event.pull_request.number }}.surge.sh"
