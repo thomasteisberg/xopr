@@ -11,6 +11,7 @@ permissions:
   contents: read
   pages: write
   id-token: write
+  pull-requests: write  # Added for PR comments
 
 concurrency:
   group: "pages"
@@ -85,6 +86,29 @@ jobs:
       run: |
         mkdir -p docs/_build/html/coverage
         cp -r ./coverage-temp/* docs/_build/html/coverage/
+    
+    # Copy map assets for polar map functionality
+    - name: Copy map assets
+      run: |
+        if [ -d "src/xopr/map" ]; then
+          echo "Copying map assets from src/xopr/map..."
+          mkdir -p docs/_build/html/_static/maps
+          cp -f src/xopr/map/polar.html docs/_build/html/_static/maps/ 2>/dev/null || true
+          cp -f src/xopr/map/parquet_wasm.js docs/_build/html/_static/maps/ 2>/dev/null || true
+          cp -f src/xopr/map/parquet_wasm_bg.wasm docs/_build/html/_static/maps/ 2>/dev/null || true
+          cp -f src/xopr/map/*.parquet docs/_build/html/_static/maps/ 2>/dev/null || true
+          echo "Map assets copied successfully"
+        else
+          echo "Warning: src/xopr/map directory not found, skipping map assets"
+        fi
+    
+    # Upload artifact for all builds (PR and main)
+    - name: Upload docs artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: docs-html-${{ github.sha }}
+        path: docs/_build/html
+        retention-days: 7
 
     - name: Setup Pages
       uses: actions/configure-pages@v5
@@ -95,6 +119,79 @@ jobs:
       if: github.ref == 'refs/heads/main'
       with:
         path: docs/_build/html
+
+  # Deploy PR Preview to Surge.sh
+  pr-preview:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+    - name: Download docs artifact
+      uses: actions/download-artifact@v4
+      with:
+        name: docs-html-${{ github.sha }}
+        path: ./docs-preview
+    
+    - name: Deploy to Surge.sh
+      id: surge_deploy
+      run: |
+        npm install -g surge
+        # Deploy with PR-specific URL
+        SURGE_DOMAIN="xopr-pr-${{ github.event.pull_request.number }}.surge.sh"
+        surge ./docs-preview $SURGE_DOMAIN --token ${{ secrets.SURGE_TOKEN }} || echo "::warning::Surge deployment failed. You may need to set up SURGE_TOKEN secret."
+        echo "surge_url=https://$SURGE_DOMAIN" >> $GITHUB_OUTPUT
+      continue-on-error: true
+    
+    - name: Comment on PR
+      uses: actions/github-script@v7
+      with:
+        script: |
+          const prNumber = context.issue.number;
+          const sha = context.sha.substring(0, 7);
+          const artifactUrl = `https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${{ github.run_id }}`;
+          
+          let body = `## 📚 Documentation Preview Ready!\n\n`;
+          
+          // Check if Surge deployment succeeded
+          const surgeUrl = '${{ steps.surge_deploy.outputs.surge_url }}';
+          if (surgeUrl && !surgeUrl.includes('::warning::')) {
+            body += `### 🌐 Live Preview\n**URL:** ${surgeUrl}\n\n`;
+          } else {
+            body += `### ⚠️ Surge.sh deployment not configured\nTo enable live previews, [set up a SURGE_TOKEN secret](https://github.com/${context.repo.owner}/${context.repo.repo}/settings/secrets/actions)\n\n`;
+          }
+          
+          body += `### 📦 Download Preview\n`;
+          body += `You can download the preview artifact [here](${artifactUrl}) for local viewing.\n\n`;
+          body += `**Commit:** \`${sha}\`\n\n`;
+          body += `---\n*This preview will be updated automatically with new commits.*`;
+          
+          // Find and update existing comment or create new one
+          const { data: comments } = await github.rest.issues.listComments({
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            issue_number: prNumber
+          });
+          
+          const botComment = comments.find(comment => 
+            comment.user.login === 'github-actions[bot]' && 
+            comment.body.includes('Documentation Preview Ready')
+          );
+          
+          if (botComment) {
+            await github.rest.issues.updateComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              comment_id: botComment.id,
+              body: body
+            });
+          } else {
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: prNumber,
+              body: body
+            });
+          }
 
   deploy:
     environment:
