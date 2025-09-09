@@ -1,0 +1,11 @@
+format: jb-book
+root: index
+chapters:
+- file: notebooks/demo_notebook
+- file: notebooks/search_and_scaling
+- file: notebooks/reading_params
+- file: notebooks/test_polar_map
+- file: notebooks/test_polar_map_working
+- file: notebooks/STAC
+- file: notebooks/test_myst_substitutions
+- file: notebooks/test_template

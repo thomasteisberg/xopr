@@ -19,6 +19,8 @@ project:
         - file: notebooks/crossovers.ipynb
         - file: notebooks/test_polar_map.ipynb
         - file: notebooks/test_polar_map_working.md
+        - file: notebooks/test_myst_substitutions.md
+        - file: notebooks/test_template.md
     
 site:
   template: book-theme
