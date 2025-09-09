@@ -6,7 +6,6 @@ xopr is a Python library designed to make accessing [Open Polar Radar's](https:/
 
 ## Current Antarctic data accessible by xopr:  
 
-```{raw} html
 <script>
     // Configuration using MyST substitutions
     window.ANTARCTICA_MAP_CONFIG = {
@@ -23,11 +22,9 @@ xopr is a Python library designed to make accessing [Open Polar Radar's](https:/
     style="border: 1px solid #ccc; border-radius: 5px;"
     onload="this.contentWindow.CONFIG = window.ANTARCTICA_MAP_CONFIG">
 </iframe>
-```
 
 ## Current Arctic data accessible by xopr:  
 
-```{raw} html
 <script>
     // Configuration using MyST substitutions
     window.ARCTIC_MAP_CONFIG = {
@@ -44,7 +41,6 @@ xopr is a Python library designed to make accessing [Open Polar Radar's](https:/
     style="border: 1px solid #ccc; border-radius: 5px;"
     onload="this.contentWindow.CONFIG = window.ARCTIC_MAP_CONFIG">
 </iframe>
-```
 
 :::{warning}
 xopr is a work in progress! The API will almost certainly change in the future, so please proceed with caution.
