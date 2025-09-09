@@ -1,4 +1,4 @@
-from typing import Iterable, Optional
+from typing import Iterable, Optional, Union
 import warnings
 import xarray as xr
 import fsspec
@@ -11,6 +11,7 @@ import scipy.io
 import geopandas as gpd
 import shapely
 import pystac_client
+import pystac
 import h5py
 
 from .cf_units import apply_cf_compliant_attrs
@@ -48,9 +49,11 @@ class OPRConnection:
             }
             self.fsspec_url_prefix = 'filecache::'
 
-    def query_frames(self, seasons: list[str] = None, flight_ids: list[str] = None, geometry = None, date_range: tuple = None,
-                     parameters: dict = {}, max_items: int = None, full_flights: bool = False, exclude_geometry: bool = False,
-                     return_type='dict', return_iterator=False, search_kwargs: dict = {}) -> list:
+    def query_frames(self, seasons: list[str] = None, flight_ids: list[str] = None,
+                     geometry = None, date_range: tuple = None,
+                     properties: dict = {}, max_items: int = None, full_flights: bool = False,
+                     exclude_geometry: bool = False, return_type='dict', return_iterator=False,
+                     search_kwargs: dict = {}) -> list:
         """
         Query for radar frames based on various search criteria. All criteria are combined with AND logic.
         Lists passed to seasons or flight_ids are combined with OR logic.
@@ -67,8 +70,8 @@ class OPRConnection:
             Geospatial geometry to filter by (e.g., a shapely geometry object).
         date_range : tuple, optional
             Date range to filter by (e.g., (start_date, end_date)).
-        parameters : dict, optional
-            Additional parameters to include in the query.
+        properties : dict, optional
+            Additional properties to include in the query.
         max_items : int, optional
             Maximum number of items to return.
         full_flights : bool, optional
@@ -159,9 +162,9 @@ class OPRConnection:
                         "op": "or",
                         "args": flight_conditions
                     })
-        
-        # Add any additional parameter filters
-        for key, value in parameters.items():
+
+        # Add any additional property filters
+        for key, value in properties.items():
             filter_conditions.append({
                 "op": "=",
                 "args": [{"property": key}, value]
@@ -916,28 +919,40 @@ class OPRConnection:
 
         return ds_list
 
-    def get_layers_files(self, ds: xr.Dataset) -> dict:
+    def get_layers_files(self, flight: Union[xr.Dataset, dict, pystac.Item]) -> dict:
         """
         Fetch layers from the CSARP_layers files
         
         Parameters
         ----------
-        ds : xr.Dataset
-            The xarray Dataset containing radar data.
-            
+        flight : Union[xr.Dataset, dict, pystac.Item]
+            The flight information, which can be an xarray Dataset, a dictionary, or a STAC item.
+
         Returns
         -------
         dict
             A dictionary mapping layer IDs to their corresponding data.
         """
-        # Get collection and flight information from the dataset attributes
-        collection = ds.attrs.get('season')
-        flight_id = ds.attrs.get('segment')
+        if isinstance(flight, xr.Dataset):
+            # Get collection and flight information from the dataset attributes
+            collection = flight.attrs.get('season')
+            flight_id = flight.attrs.get('segment')
+            frame = None # Could be multiple frames in the dataset
+        else:
+            if isinstance(flight, pystac.Item):
+                flight = flight.to_dict()
+            collection = flight['collection']
+            flight_id = f"{flight['properties'].get('opr:date')}_{flight['properties'].get('opr:flight'):02d}" # TODO: Update after resolving https://github.com/thomasteisberg/xopr/issues/22
+            frame = flight['properties'].get('opr:segment')
+
+        properties = {}
+        if frame:
+            properties['opr:segment'] = frame
 
         # Query STAC collection for CSARP_layer files matching this specific flight
                       
         # Get items from this specific flight
-        stac_items = self.query_frames(seasons=[collection], flight_ids=[flight_id])
+        stac_items = self.query_frames(seasons=[collection], flight_ids=[flight_id], properties=properties)
 
         # Filter for items that have CSARP_layer assets
         layer_items = []
@@ -946,7 +961,7 @@ class OPRConnection:
                 layer_items.append(item)
         
         if not layer_items:
-            print(f"No CSARP_layer files found for segment {flight_id} in collection {collection}")
+            #print(f"No CSARP_layer files found for segment {flight_id} in collection {collection}")
             return {}
         
         # Load each layer file and combine them
@@ -967,12 +982,11 @@ class OPRConnection:
             return {}
         
         # Concatenate all layer frames along slow_time dimension
-        layers_flight = xr.concat(layer_frames, dim='slow_time', combine_attrs='drop_conflicts')
+        layers_flight = xr.concat(layer_frames, dim='slow_time', combine_attrs='drop_conflicts', data_vars='all')
         layers_flight = layers_flight.sortby('slow_time')
         
         # Trim to bounds of the original dataset
-        if 'slow_time' in ds.coords:
-            layers_flight = layers_flight.sel(slow_time=slice(ds['slow_time'].min(), ds['slow_time'].max()))
+        layers_flight = self._trim_to_bounds(layers_flight, flight)
         
         # Split into separate layers by ID
         layers = {}
@@ -999,7 +1013,25 @@ class OPRConnection:
             layers[layer_id_int] = layer_ds
         
         return layers
-    
+
+    def _trim_to_bounds(self, ds: xr.Dataset, ref: Union[xr.Dataset, dict, pystac.Item]) -> xr.Dataset:
+        start_time, end_time = None, None
+        if isinstance(ref, xr.Dataset) and 'slow_time' in ref.coords:
+            start_time = ref['slow_time'].min()
+            end_time = ref['slow_time'].max()
+        else:
+            if isinstance(ref, pystac.Item):
+                ref = ref.to_dict()
+            properties = ref.get('properties', {})
+            if 'start_datetime' in properties and 'end_datetime' in properties:
+                start_time = pd.to_datetime(properties['start_datetime'])
+                end_time = pd.to_datetime(properties['end_datetime'])
+
+        if start_time:
+            return ds.sel(slow_time=slice(start_time, end_time))
+        else:
+            return ds
+
     def load_layers_file(self, url: str) -> xr.Dataset:
         """
         Load layer data from a CSARP_layer file (either HDF5 or MATLAB format).
@@ -1180,14 +1212,14 @@ class OPRConnection:
         
         return ds
 
-    def get_layers_db(self, ds: xr.Dataset) -> dict:
+    def get_layers_db(self, flight: Union[xr.Dataset, dict, pystac.Item]) -> dict:
         """
         Fetch layer data from the OPS API
 
         Parameters
         ----------
-        ds : xr.Dataset
-            The xarray Dataset containing radar data.
+        flight : Union[xr.Dataset, dict, pystac.Item]
+            The flight data, which can be an xarray Dataset, a dictionary, or a STAC item.
 
         Returns
         -------
@@ -1195,16 +1227,26 @@ class OPRConnection:
             A dictionary mapping layer IDs to their corresponding data.
         """
 
-        if 'Antarctica' in ds.attrs['season']:
+        if isinstance(flight, xr.Dataset):
+            # Get collection and flight information from the dataset attributes
+            collection = flight.attrs.get('season')
+            flight_id = flight.attrs.get('segment')
+        else:
+            if isinstance(flight, pystac.Item):
+                flight = flight.to_dict()
+            collection = flight['collection']
+            flight_id = f"{flight['properties'].get('opr:date')}_{flight['properties'].get('opr:flight'):02d}" # TODO: Update after resolving https://github.com/thomasteisberg/xopr/issues/22
+
+        if 'Antarctica' in collection:
             location = 'antarctic'
-        elif 'Greenland' in ds.attrs['season']:
+        elif 'Greenland' in collection:
             location = 'arctic'
         else:
             raise ValueError("Dataset does not belong to a recognized location (Antarctica or Greenland).")
         
         layer_points = ops_api.get_layer_points(
-            segment_name=ds.attrs['segment'],
-            season_name=ds.attrs['season'],
+            segment_name=flight_id,
+            season_name=collection,
             location=location
         )
 
@@ -1231,9 +1273,8 @@ class OPRConnection:
 
             l['slow_time'] = pd.to_datetime(l['slow_time'].values, unit='s')
 
-            # Filter to the same time range as ds
-            if 'slow_time' in ds.coords:
-                l = l.sel(slow_time=slice(ds['slow_time'].min(), ds['slow_time'].max()))
+            # Filter to the same time range as flight
+            l = self._trim_to_bounds(l, flight)
 
             layers[layer_id] = l
 
