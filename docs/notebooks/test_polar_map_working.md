@@ -7,7 +7,7 @@ This page demonstrates the polar map integration with GeoParquet data.
 Below is an Antarctic map showing test data. The map loads GeoParquet files directly in the browser using WebAssembly.
 
 <iframe 
-    src="http://localhost:8093/maps/polar.html" 
+    src="../_static/maps/polar.html"
     width="100%" 
     height="600"
     frameborder="0"
