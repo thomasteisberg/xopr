@@ -1212,7 +1212,7 @@ class OPRConnection:
         
         return ds
 
-    def get_layers_db(self, flight: Union[xr.Dataset, dict, pystac.Item]) -> dict:
+    def get_layers_db(self, flight: Union[xr.Dataset, dict, pystac.Item], include_geometry=True) -> dict:
         """
         Fetch layer data from the OPS API
 
@@ -1220,6 +1220,8 @@ class OPRConnection:
         ----------
         flight : Union[xr.Dataset, dict, pystac.Item]
             The flight data, which can be an xarray Dataset, a dictionary, or a STAC item.
+        include_geometry : bool, optional
+            If True, include geometry information in the returned layers.
 
         Returns
         -------
@@ -1247,7 +1249,8 @@ class OPRConnection:
         layer_points = ops_api.get_layer_points(
             segment_name=flight_id,
             season_name=collection,
-            location=location
+            location=location,
+            include_geometry=include_geometry
         )
 
         if layer_points['status'] != 1:
