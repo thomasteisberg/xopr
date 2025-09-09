@@ -26,23 +26,66 @@
             font-size: 12px;
             z-index: 1000;
         }
+        .cors-status {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            background: rgba(255, 255, 255, 0.9);
+            padding: 5px 10px;
+            border-radius: 3px;
+            font-size: 11px;
+            z-index: 1000;
+            display: none;
+        }
+        .cors-status.visible { display: block; }
+        .cors-status.success { border-left: 3px solid #28a745; }
+        .cors-status.proxy { border-left: 3px solid #ffc107; }
+        .cors-status.error { border-left: 3px solid #dc3545; }
     </style>
 </head>
 <body>
     <div id="map"></div>
     <div class="map-info" id="info">Click on features for details</div>
+    <div class="cors-status" id="corsStatus"></div>
     
     <script type="module">
-        import init, { readParquet } from './parquet_wasm.js';
+        // Dynamic import path resolution - works with relative paths
+        const getBasePath = () => {
+            // Get the directory containing this HTML file
+            const pathname = window.location.pathname;
+            const pathParts = pathname.split('/');
+            pathParts.pop(); // Remove the HTML filename
+            return pathParts.join('/') || '.';
+        };
+        
+        const basePath = getBasePath();
+        const wasmModulePath = basePath + '/parquet_wasm.js';
+        
+        console.log('Loading WASM module from:', wasmModulePath);
+        const { default: init, readParquet } = await import(wasmModulePath);
         import * as arrow from 'https://cdn.jsdelivr.net/npm/apache-arrow@14.0.2/+esm';
         
-        // Configuration - these will be replaced by Myst
-        const CONFIG = {
-            pole: 'south',  // 'north' or 'south'
-            parquetFiles: ['test_antarctic_random_walk.parquet'],  // list of parquet files
-            centerLon: 0,  // center longitude for north pole projection
-            defaultZoom: 3
-        };
+        // Wait for CONFIG to be set by parent window, or use defaults
+        function getConfig() {
+            // Check if CONFIG was set by parent window
+            if (window.CONFIG && typeof window.CONFIG === 'object') {
+                return window.CONFIG;
+            }
+            // Otherwise use defaults
+            return {
+                pole: 'south',  // 'north' or 'south'
+                parquetFiles: ['https://storage.googleapis.com/opr_test_dataset_1/test_antarctic_random_walk.parquet'],  // list of parquet files
+                centerLon: 0,  // center longitude for north pole projection
+                defaultZoom: 3
+            };
+        }
+        
+        // Delay initialization to allow parent to set CONFIG
+        async function waitForConfig() {
+            // Give parent window time to set CONFIG
+            await new Promise(resolve => setTimeout(resolve, 100));
+            return getConfig();
+        }
         
         // Setup projections
         const PROJECTIONS = {
@@ -62,38 +105,44 @@
             }
         };
         
-        const projConfig = PROJECTIONS[CONFIG.pole];
-        
-        // Define projection
-        proj4.defs(projConfig.code, projConfig.def);
-        ol.proj.proj4.register(proj4);
-        
-        const projection = ol.proj.get(projConfig.code);
-        projection.setExtent(projConfig.extent);
-        
-        // Create map
-        const map = new ol.Map({
-            target: 'map',
-            layers: [
-                new ol.layer.Tile({
-                    source: new ol.source.TileWMS({
-                        url: projConfig.wmsUrl,
-                        params: {
-                            'LAYERS': projConfig.wmsLayer,
-                            'FORMAT': 'image/jpeg',
-                            'SRS': projConfig.code
-                        },
-                        projection: projection,
-                        crossOrigin: 'anonymous'
+        // Initialize map and features after CONFIG is ready
+        async function initializeMap() {
+            const CONFIG = await waitForConfig();
+            const projConfig = PROJECTIONS[CONFIG.pole];
+            
+            // Define projection
+            proj4.defs(projConfig.code, projConfig.def);
+            ol.proj.proj4.register(proj4);
+            
+            const projection = ol.proj.get(projConfig.code);
+            projection.setExtent(projConfig.extent);
+            
+            // Create map
+            const map = new ol.Map({
+                target: 'map',
+                layers: [
+                    new ol.layer.Tile({
+                        source: new ol.source.TileWMS({
+                            url: projConfig.wmsUrl,
+                            params: {
+                                'LAYERS': projConfig.wmsLayer,
+                                'FORMAT': 'image/jpeg',
+                                'SRS': projConfig.code
+                            },
+                            projection: projection,
+                            crossOrigin: 'anonymous'
+                        })
                     })
+                ],
+                view: new ol.View({
+                    projection: projection,
+                    center: [0, 0],
+                    zoom: CONFIG.defaultZoom
                 })
-            ],
-            view: new ol.View({
-                projection: projection,
-                center: [0, 0],
-                zoom: CONFIG.defaultZoom
-            })
-        });
+            });
+            
+            return { map, projConfig, CONFIG };
+        }
         
         // WKB parser
         function parseWKB(wkbData) {
@@ -163,20 +212,88 @@
             }
         }
         
-        // Load parquet file
-        async function loadParquetFile(filename) {
-            const response = await fetch(filename);
-            const arrayBuffer = await response.arrayBuffer();
-            const wasmTable = readParquet(new Uint8Array(arrayBuffer));
-            const ipcStream = wasmTable.intoIPCStream();
-            const arrowTable = arrow.tableFromIPC(ipcStream);
+        // Smart fetch with automatic CORS proxy fallback
+        async function smartFetch(url, options = {}) {
+            const statusEl = document.getElementById('corsStatus');
             
-            const features = [];
-            const geometryColumn = arrowTable.getChild('geometry');
-            const nameColumn = arrowTable.getChild('name');
-            const descriptionColumn = arrowTable.getChild('description');
+            // First, try direct fetch
+            try {
+                console.log('Attempting direct fetch:', url);
+                const response = await fetch(url, {
+                    ...options,
+                    mode: 'cors',
+                    credentials: 'omit'
+                });
+                
+                if (response.ok) {
+                    console.log('Direct fetch successful');
+                    if (statusEl) {
+                        statusEl.className = 'cors-status visible success';
+                        statusEl.textContent = '✓ Direct';
+                    }
+                    return response;
+                }
+            } catch (error) {
+                console.log('Direct fetch failed, trying proxy...', error.message);
+            }
             
-            for (let i = 0; i < arrowTable.numRows; i++) {
+            // If direct fetch fails, try proxy
+            try {
+                const proxyUrl = 'https://corsproxy.io/?' + encodeURIComponent(url);
+                console.log('Trying proxy:', proxyUrl);
+                
+                const response = await fetch(proxyUrl, options);
+                
+                if (response.ok) {
+                    console.log('Proxy successful');
+                    if (statusEl) {
+                        statusEl.className = 'cors-status visible proxy';
+                        statusEl.textContent = '⚡ Proxy';
+                    }
+                    return response;
+                }
+            } catch (error) {
+                console.log('Proxy failed:', error.message);
+            }
+            
+            // All attempts failed
+            if (statusEl) {
+                statusEl.className = 'cors-status visible error';
+                statusEl.textContent = '✗ Failed';
+            }
+            throw new Error('Failed to fetch resource');
+        }
+        
+        // Load parquet file with smart CORS handling
+        async function loadParquetFile(filename, projConfig) {
+            console.log(`Loading parquet file: ${filename}`);
+            
+            try {
+                // For remote files, use smartFetch with fallback
+                let response;
+                if (filename.startsWith('http://') || filename.startsWith('https://')) {
+                    response = await smartFetch(filename);
+                } else {
+                    // For local files, use regular fetch
+                    response = await fetch(filename);
+                }
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status} for ${filename}`);
+                }
+                
+                const arrayBuffer = await response.arrayBuffer();
+                console.log(`Successfully fetched ${filename}, size: ${arrayBuffer.byteLength} bytes`);
+                const wasmTable = readParquet(new Uint8Array(arrayBuffer));
+                const ipcStream = wasmTable.intoIPCStream();
+                const arrowTable = arrow.tableFromIPC(ipcStream);
+                
+                const features = [];
+                const geometryColumn = arrowTable.getChild('geometry');
+                const nameColumn = arrowTable.getChild('name');
+                const descriptionColumn = arrowTable.getChild('description');
+                
+                for (let i = 0; i < arrowTable.numRows; i++) {
                 const wkbData = geometryColumn?.get(i);
                 if (wkbData) {
                     const geom = parseWKB(wkbData);
@@ -208,20 +325,34 @@
                         }
                     }
                 }
+                }
+                
+                return features;
+            } catch (e) {
+                console.error(`Error fetching ${filename}:`, e);
+                throw e;
             }
-            
-            return features;
         }
         
         // Initialize and load all parquet files
         async function initialize() {
             try {
-                await init('./parquet_wasm_bg.wasm');
+                console.log('Initializing parquet-wasm...');
+                // Use the same base path for WASM file
+                const wasmPath = basePath + '/parquet_wasm_bg.wasm';
+                
+                console.log('WASM path resolved to:', wasmPath);
+                await init(wasmPath);
+                console.log('parquet-wasm initialized successfully');
+                
+                // Initialize map with CONFIG
+                const { map, projConfig, CONFIG } = await initializeMap();
+                console.log('Map initialized with CONFIG:', CONFIG);
                 
                 const allFeatures = [];
                 for (const file of CONFIG.parquetFiles) {
                     try {
-                        const features = await loadParquetFile(file);
+                        const features = await loadParquetFile(file, projConfig);
                         allFeatures.push(...features);
                     } catch (e) {
                         console.error(`Error loading ${file}:`, e);
@@ -280,33 +411,33 @@
                     }
                 }
                 
+                // Feature click handler
+                map.on('click', function(evt) {
+                    const feature = map.forEachFeatureAtPixel(evt.pixel, f => f);
+                    if (feature) {
+                        const props = feature.getProperties();
+                        document.getElementById('info').innerHTML = 
+                            `<strong>${props.name}</strong>${props.description ? '<br>' + props.description : ''}`;
+                    } else {
+                        const coords = evt.coordinate;
+                        const lonlat = ol.proj.transform(coords, projConfig.code, 'EPSG:4326');
+                        document.getElementById('info').innerHTML = 
+                            `${lonlat[1].toFixed(4)}°, ${lonlat[0].toFixed(4)}°`;
+                    }
+                });
+                
+                // Hover cursor change
+                map.on('pointermove', function(evt) {
+                    const pixel = map.getEventPixel(evt.originalEvent);
+                    const hit = map.hasFeatureAtPixel(pixel);
+                    map.getTarget().style.cursor = hit ? 'pointer' : '';
+                });
+                
             } catch (error) {
                 console.error('Initialization error:', error);
                 document.getElementById('info').innerHTML = 'Error loading data';
             }
         }
-        
-        // Feature click handler
-        map.on('click', function(evt) {
-            const feature = map.forEachFeatureAtPixel(evt.pixel, f => f);
-            if (feature) {
-                const props = feature.getProperties();
-                document.getElementById('info').innerHTML = 
-                    `<strong>${props.name}</strong>${props.description ? '<br>' + props.description : ''}`;
-            } else {
-                const coords = evt.coordinate;
-                const lonlat = ol.proj.transform(coords, projConfig.code, 'EPSG:4326');
-                document.getElementById('info').innerHTML = 
-                    `${lonlat[1].toFixed(4)}°, ${lonlat[0].toFixed(4)}°`;
-            }
-        });
-        
-        // Hover cursor change
-        map.on('pointermove', function(evt) {
-            const pixel = map.getEventPixel(evt.originalEvent);
-            const hit = map.hasFeatureAtPixel(pixel);
-            map.getTarget().style.cursor = hit ? 'pointer' : '';
-        });
         
         // Start
         initialize();
