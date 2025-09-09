@@ -4,6 +4,30 @@
 
 xopr is a Python library designed to make accessing [Open Polar Radar's](https://ops.cresis.ku.edu/) data archives easy, scalable, and reproducible.
 
+## Current Antarctic data accessible by xopr:  
+
+<iframe 
+    src="../_static/maps/polar.html" 
+    width="100%" 
+    height="600"
+    frameborder="0"
+    style="border: 1px solid #ccc; border-radius: 5px;"
+    onload="this.contentWindow.CONFIG = {pole: 'south', parquetFiles: ['https://storage.googleapis.com/opr_stac/testing/2010_Antarctica_DC8.parquet',
+                                                                       'https://storage.googleapis.com/opr_stac/testing/2011_Antarctica_DC8.parquet'], defaultZoom: 3}">
+</iframe>
+
+## Current Arctic data accessible by xopr:  
+
+<iframe 
+    src="../_static/maps/polar.html" 
+    width="100%" 
+    height="600"
+    frameborder="0"
+    style="border: 1px solid #ccc; border-radius: 5px;"
+    onload="this.contentWindow.CONFIG = {pole: 'north', parquetFiles: ['https://storage.googleapis.com/opr_stac/testing/2011_Greenland_P3.parquet',
+                                                                       'https://storage.googleapis.com/opr_stac/testing/2012_Greenland_P3.parquet'], defaultZoom: 3}">
+</iframe>
+
 :::{warning}
 xopr is a work in progress! The API will almost certainly change in the future, so please proceed with caution.
 
