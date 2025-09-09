@@ -65,6 +65,11 @@
         const { default: init, readParquet } = await import(wasmModulePath);
         import * as arrow from 'https://cdn.jsdelivr.net/npm/apache-arrow@14.0.2/+esm';
         
+        // Make CONFIG settable even before the script runs
+        if (typeof window.CONFIG === 'undefined') {
+            window.CONFIG = null;
+        }
+        
         // Wait for CONFIG to be set by parent window, or use defaults
         function getConfig() {
             // Check if CONFIG was set by parent window
@@ -82,8 +87,16 @@
         
         // Delay initialization to allow parent to set CONFIG
         async function waitForConfig() {
-            // Give parent window time to set CONFIG
-            await new Promise(resolve => setTimeout(resolve, 100));
+            // Give parent window more time to set CONFIG
+            // This helps avoid the "Unexpected end of input" error
+            await new Promise(resolve => {
+                // If document is still loading, wait for it
+                if (document.readyState !== 'complete') {
+                    window.addEventListener('load', resolve);
+                } else {
+                    setTimeout(resolve, 100);
+                }
+            });
             return getConfig();
         }
         
@@ -430,7 +443,10 @@
                 map.on('pointermove', function(evt) {
                     const pixel = map.getEventPixel(evt.originalEvent);
                     const hit = map.hasFeatureAtPixel(pixel);
-                    map.getTarget().style.cursor = hit ? 'pointer' : '';
+                    const targetElement = map.getTargetElement();
+                    if (targetElement) {
+                        targetElement.style.cursor = hit ? 'pointer' : '';
+                    }
                 });
                 
             } catch (error) {
@@ -439,8 +455,11 @@
             }
         }
         
-        // Start
-        initialize();
+        // Start with error protection
+        initialize().catch(error => {
+            console.warn('Map initialization warning:', error.message);
+            // Even if there's an error, the map might still work
+        });
     </script>
 </body>
 </html>
