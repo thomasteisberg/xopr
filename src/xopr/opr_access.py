@@ -971,7 +971,8 @@ class OPRConnection:
         layers_flight = layers_flight.sortby('slow_time')
         
         # Trim to bounds of the original dataset
-        layers_flight = layers_flight.sel(slow_time=slice(ds['slow_time'].min(), ds['slow_time'].max()))
+        if 'slow_time' in ds.coords:
+            layers_flight = layers_flight.sel(slow_time=slice(ds['slow_time'].min(), ds['slow_time'].max()))
         
         # Split into separate layers by ID
         layers = {}
@@ -1231,7 +1232,8 @@ class OPRConnection:
             l['slow_time'] = pd.to_datetime(l['slow_time'].values, unit='s')
 
             # Filter to the same time range as ds
-            l = l.sel(slow_time=slice(ds['slow_time'].min(), ds['slow_time'].max()))
+            if 'slow_time' in ds.coords:
+                l = l.sel(slow_time=slice(ds['slow_time'].min(), ds['slow_time'].max()))
 
             layers[layer_id] = l
 
