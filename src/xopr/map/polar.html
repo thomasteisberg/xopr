@@ -70,33 +70,49 @@
             window.CONFIG = null;
         }
         
+        // Allow parent to set CONFIG even after initialization
+        let configUsed = false;
+        
         // Wait for CONFIG to be set by parent window, or use defaults
         function getConfig() {
             // Check if CONFIG was set by parent window
             if (window.CONFIG && typeof window.CONFIG === 'object') {
+                console.log('Using parent-provided CONFIG:', window.CONFIG);
+                configUsed = true;
                 return window.CONFIG;
             }
             // Otherwise use defaults
-            return {
+            const defaultConfig = {
                 pole: 'south',  // 'north' or 'south'
                 parquetFiles: ['https://storage.googleapis.com/opr_test_dataset_1/test_antarctic_random_walk.parquet'],  // list of parquet files
                 centerLon: 0,  // center longitude for north pole projection
                 defaultZoom: 3
             };
+            console.log('Using default CONFIG:', defaultConfig);
+            return defaultConfig;
         }
         
         // Delay initialization to allow parent to set CONFIG
         async function waitForConfig() {
             // Give parent window more time to set CONFIG
-            // This helps avoid the "Unexpected end of input" error
+            // Try multiple times to check for CONFIG
+            for (let i = 0; i < 10; i++) {
+                if (window.CONFIG && typeof window.CONFIG === 'object') {
+                    console.log(`CONFIG found after ${i * 50}ms`);
+                    break;
+                }
+                await new Promise(resolve => setTimeout(resolve, 50));
+            }
+            
+            // Final wait for document ready
             await new Promise(resolve => {
-                // If document is still loading, wait for it
                 if (document.readyState !== 'complete') {
                     window.addEventListener('load', resolve);
                 } else {
-                    setTimeout(resolve, 100);
+                    setTimeout(resolve, 50);
                 }
             });
+            
             return getConfig();
         }
         
