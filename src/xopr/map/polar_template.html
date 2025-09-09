@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>Polar Map Viewer</title>
+    <script src="https://cdn.jsdelivr.net/npm/ol@10.2.1/dist/ol.js"></script>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/ol@10.2.1/ol.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/proj4js/2.11.0/proj4.js"></script>
+    <style>
+        body { 
+            margin: 0; 
+            padding: 0;
+            font-family: Arial, sans-serif;
+        }
+        #map { 
+            width: 100%; 
+            height: 600px;
+        }
+        .map-info {
+            position: absolute;
+            bottom: 10px;
+            left: 10px;
+            background: rgba(255, 255, 255, 0.9);
+            padding: 5px 10px;
+            border-radius: 3px;
+            font-size: 12px;
+            z-index: 1000;
+        }
+        .cors-status {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            background: rgba(255, 255, 255, 0.9);
+            padding: 5px 10px;
+            border-radius: 3px;
+            font-size: 11px;
+            z-index: 1000;
+            display: none;
+        }
+        .cors-status.visible { display: block; }
+        .cors-status.success { border-left: 3px solid #28a745; }
+        .cors-status.proxy { border-left: 3px solid #ffc107; }
+        .cors-status.error { border-left: 3px solid #dc3545; }
+    </style>
+</head>
+<body>
+    <div id="map"></div>
+    <div class="map-info" id="info">Click on features for details</div>
+    <div class="cors-status" id="corsStatus"></div>
+    
+    <script type="module">
+        // Dynamic import path resolution - works with relative paths
+        const getBasePath = () => {
+            const pathname = window.location.pathname;
+            const pathParts = pathname.split('/');
+            pathParts.pop(); // Remove the HTML filename
+            return pathParts.join('/') || '.';
+        };
+        
+        const basePath = getBasePath();
+        const wasmModulePath = basePath + '/parquet_wasm.js';
+        
+        console.log('Loading WASM module from:', wasmModulePath);
+        const { default: init, readParquet } = await import(wasmModulePath);
+        import * as arrow from 'https://cdn.jsdelivr.net/npm/apache-arrow@14.0.2/+esm';
+        
+        // CONFIGURATION EMBEDDED AT BUILD TIME
+        // These values will be replaced by the build process
+        const CONFIG = {
+            pole: '{{POLE}}',  // 'north' or 'south'
+            parquetFiles: {{PARQUET_FILES}},  // JSON array of file URLs
+            centerLon: {{CENTER_LON|default(0)}},
+            defaultZoom: {{DEFAULT_ZOOM|default(3)}}
+        };
+        
+        console.log('Using build-time embedded CONFIG:', CONFIG);
+        
+        // No need for waitForConfig or getConfig functions anymore!
+        // The configuration is directly embedded in the HTML at build time
+        
+        // Setup projections
+        const PROJECTIONS = {
+            south: {
+                code: 'EPSG:3031',
+                def: '+proj=stere +lat_0=-90 +lat_ts=-71 +lon_0=0 +x_0=0 +y_0=0 +datum=WGS84 +units=m +no_defs +type=crs',
+                extent: [-3369955, -3369955, 3369955, 3369955],
+                wmsUrl: 'https://gibs.earthdata.nasa.gov/wms/epsg3031/best/wms.cgi',
+                wmsLayer: 'BlueMarble_ShadedRelief'
+            },
+            north: {
+                code: 'EPSG:3413',
+                def: '+proj=stere +lat_0=90 +lat_ts=70 +lon_0=-45 +x_0=0 +y_0=0 +datum=WGS84 +units=m +no_defs +type=crs',
+                extent: [-4194304, -4194304, 4194304, 4194304],
+                wmsUrl: 'https://gibs.earthdata.nasa.gov/wms/epsg3413/best/wms.cgi',
+                wmsLayer: 'BlueMarble_ShadedRelief'
+            }
+        };
+        
+        // Copy the rest of the functions from polar.html
+        // (parseWKB, smartFetch, loadParquetFile, etc.)
+        // ... [rest of the code would go here]
+        
+        // For now, just show that the config is loaded
+        document.getElementById('info').innerHTML = 
+            `Config loaded: ${CONFIG.pole} pole with ${CONFIG.parquetFiles.length} file(s)`;
+    </script>
+</body>
+</html>
