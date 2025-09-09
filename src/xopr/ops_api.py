@@ -11,7 +11,7 @@ import urllib.parse
 
 ops_base_url = "https://ops.cresis.ku.edu/ops"
 
-def get_layer_points(segment_name : str, season_name : str, location=None, layer_names=None):
+def get_layer_points(segment_name : str, season_name : str, location=None, layer_names=None, include_geometry=True):
     """
     Get layer points for a segment from the OPS API.
 
@@ -25,6 +25,8 @@ def get_layer_points(segment_name : str, season_name : str, location=None, layer
         The location, either 'arctic' or 'antarctic'. If None, inferred from season_name.
     layer_names : list of str, optional
         List of layer names to retrieve. If None, retrieves all layers.
+    include_geometry : bool, optional
+        Whether to include geometry information in the response. Default is True.
 
     Returns
     -------
@@ -51,9 +53,12 @@ def get_layer_points(segment_name : str, season_name : str, location=None, layer
         "properties": {
             "location": location,
             "season": season_name,
-            "segment": segment_name,
+            "segment": segment_name
         }
     }
+
+    if include_geometry:
+        data_payload["properties"]["return_geom"] = 'geog'
     
     # Add layer names if specified
     if layer_names:
