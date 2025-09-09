@@ -7,7 +7,7 @@ xopr is a Python library designed to make accessing [Open Polar Radar's](https:/
 ## Current Antarctic data accessible by xopr:  
 
 <iframe 
-    src="../_static/maps/polar.html" 
+    src="./_static/maps/polar.html" 
     width="100%" 
     height="600"
     frameborder="0"
@@ -19,7 +19,7 @@ xopr is a Python library designed to make accessing [Open Polar Radar's](https:/
 ## Current Arctic data accessible by xopr:  
 
 <iframe 
-    src="../_static/maps/polar.html" 
+    src="./_static/maps/polar.html" 
     width="100%" 
     height="600"
     frameborder="0"
