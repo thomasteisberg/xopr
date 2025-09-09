@@ -73,7 +73,7 @@
         // Allow parent to set CONFIG even after initialization
         let configUsed = false;
         
-        // Wait for CONFIG to be set by parent window, or use defaults
+        // Wait for CONFIG to be set by parent window (NO DEFAULTS)
         function getConfig() {
             // Check if CONFIG was set by parent window
             if (window.CONFIG && typeof window.CONFIG === 'object') {
@@ -81,15 +81,15 @@
                 configUsed = true;
                 return window.CONFIG;
             }
-            // Otherwise use defaults
-            const defaultConfig = {
-                pole: 'south',  // 'north' or 'south'
-                parquetFiles: ['https://storage.googleapis.com/opr_test_dataset_1/test_antarctic_random_walk.parquet'],  // list of parquet files
-                centerLon: 0,  // center longitude for north pole projection
-                defaultZoom: 3
-            };
-            console.log('Using default CONFIG:', defaultConfig);
-            return defaultConfig;
+            // No defaults - CONFIG must be explicitly provided
+            console.error('ERROR: No CONFIG provided. Map requires configuration.');
+            document.getElementById('map').innerHTML = 
+                '<div style="padding: 20px; text-align: center; color: #721c24; background: #f8d7da; border: 1px solid #f5c6cb; border-radius: 4px; margin: 20px;">' +
+                '<strong>Configuration Required</strong><br>' +
+                'CONFIG must be provided with pole and parquetFiles.<br>' +
+                '<code style="font-size: 11px;">Example: {pole: "south", parquetFiles: [...], defaultZoom: 3}</code>' +
+                '</div>';
+            return null;
         }
         
         // Delay initialization to allow parent to set CONFIG
@@ -137,6 +137,10 @@
         // Initialize map and features after CONFIG is ready
         async function initializeMap() {
             const CONFIG = await waitForConfig();
+            if (!CONFIG) {
+                // CONFIG is required - error already displayed
+                return null;
+            }
             const projConfig = PROJECTIONS[CONFIG.pole];
             
             // Define projection
@@ -375,7 +379,12 @@
                 console.log('parquet-wasm initialized successfully');
                 
                 // Initialize map with CONFIG
-                const { map, projConfig, CONFIG } = await initializeMap();
+                const mapResult = await initializeMap();
+                if (!mapResult) {
+                    // No CONFIG provided - error already displayed
+                    return;
+                }
+                const { map, projConfig, CONFIG } = mapResult;
                 console.log('Map initialized with CONFIG:', CONFIG);
                 
                 const allFeatures = [];
