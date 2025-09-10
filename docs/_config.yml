@@ -10,6 +10,7 @@ parse:
     - html_image
     - linkify
     - colon_fence
+    - eval_rst
 
 # Global substitutions available across all documents
 # These can be overridden in individual document frontmatter
