@@ -16,7 +16,6 @@ This tests MyST's native variable substitution feature for embedding polar maps.
 
 ## Method 1: Using Substitutions in HTML Blocks
 
-```{raw} html
 <script>
     // Define configuration using MyST substitutions
     window.ANTARCTICA_CONFIG = {
@@ -26,27 +25,24 @@ This tests MyST's native variable substitution feature for embedding polar maps.
     };
 </script>
 <iframe 
-    src="./_static/maps/polar.html" 
+    src="../_static/maps/polar.html" 
     width="100%" 
     height="600"
     frameborder="0"
     style="border: 1px solid #ccc; border-radius: 5px;"
     onload="this.contentWindow.CONFIG = window.ANTARCTICA_CONFIG">
 </iframe>
-```
 
 ## Method 2: Direct Substitution in onload
 
-```{raw} html
 <iframe 
-    src="./_static/maps/polar.html" 
+    src="../_static/maps/polar.html" 
     width="100%" 
     height="600"
     frameborder="0"
     style="border: 1px solid #ccc; border-radius: 5px;"
     onload="this.contentWindow.CONFIG = {pole: '{{ greenland_pole }}', parquetFiles: {{ greenland_files }}, defaultZoom: 3}">
 </iframe>
-```
 
 ## Method 3: Using eval-rst for More Control
 
@@ -61,7 +57,7 @@ This tests MyST's native variable substitution feature for embedding polar maps.
    };
    </script>
    <iframe 
-       src="./_static/maps/polar.html" 
+       src="../_static/maps/polar.html" 
        width="100%" 
        height="600"
        frameborder="0"
