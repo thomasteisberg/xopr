@@ -65,6 +65,21 @@
         
         // Wait for CONFIG to be set by parent window (NO DEFAULTS)
         function getConfig() {
+            // First check if CONFIG is in URL hash (base64 encoded)
+            if (window.location.hash && window.location.hash.length > 1) {
+                try {
+                    const configB64 = window.location.hash.substring(1);
+                    const configJson = atob(configB64);
+                    const config = JSON.parse(configJson);
+                    console.log('Using CONFIG from URL hash:', config);
+                    window.CONFIG = config;
+                    configUsed = true;
+                    return config;
+                } catch (e) {
+                    console.warn('Failed to parse CONFIG from URL hash:', e);
+                }
+            }
+            
             // Check if CONFIG was set by parent window
             if (window.CONFIG && typeof window.CONFIG === 'object') {
                 console.log('Using parent-provided CONFIG:', window.CONFIG);
