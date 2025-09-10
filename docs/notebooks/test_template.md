@@ -59,7 +59,7 @@ Let's try embedding the configuration directly in a script tag that runs before 
     };
 </script>
 <iframe 
-    src="./_static/maps/polar.html" 
+    src="../_static/maps/polar.html" 
     width="100%" 
     height="600"
     frameborder="0"
