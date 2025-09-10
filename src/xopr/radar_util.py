@@ -5,7 +5,7 @@ import scipy.constants
 
 from xopr.geometry import project_dataset
 
-def add_along_track_coordinate(ds: xr.Dataset, projection: str = None) -> xr.Dataset:
+def add_along_track(ds: xr.Dataset, projection: str = None) -> xr.Dataset:
     """
     Add an along-track distance coordinate to the dataset based on the latitude and longitude coordinates.
     
@@ -40,7 +40,7 @@ def add_along_track_coordinate(ds: xr.Dataset, projection: str = None) -> xr.Dat
     along_track = np.cumsum(distances)
     
     # Add the along-track coordinate to the original dataset
-    ds = ds.assign_coords(along_track=('slow_time', along_track))
+    ds['along_track'] = along_track
     ds['along_track'].attrs['units'] = 'meters'
     ds['along_track'].attrs['description'] = 'Cumulative distance along the radar track'
 
