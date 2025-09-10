@@ -13,11 +13,10 @@ project:
     - file: index.md
     - title: Notebooks
       children:
+        - file: notebooks/polar_maps.ipynb
         - file: notebooks/demo_notebook.ipynb
         #- file: notebooks/search_and_scaling.ipynb
         - file: notebooks/reading_params.ipynb
-        - file: notebooks/test_polar_map.ipynb
-        - file: notebooks/polar_maps.ipynb
     
 site:
   template: book-theme
