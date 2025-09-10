@@ -10,7 +10,7 @@ xopr is a Python library designed to make accessing [Open Polar Radar's](https:/
     // Configuration using MyST substitutions
     window.ANTARCTICA_MAP_CONFIG = {
         pole: 'south',
-        parquetFiles: {{ antarctica_2010_2011 }},
+        parquetFiles: ['https://storage.googleapis.com/opr_stac/testing/2010_Antarctica_DC8.parquet','https://storage.googleapis.com/opr_stac/testing/2011_Antarctica_DC8.parquet'],
         defaultZoom: 3
     };
 </script>
@@ -29,7 +29,7 @@ xopr is a Python library designed to make accessing [Open Polar Radar's](https:/
     // Configuration using MyST substitutions
     window.ARCTIC_MAP_CONFIG = {
         pole: 'north',
-        parquetFiles: {{ greenland_2011_2012 }},
+        parquetFiles: ['https://storage.googleapis.com/opr_stac/testing/2011_Greenland_P3.parquet'],
         defaultZoom: 3
     };
 </script>
