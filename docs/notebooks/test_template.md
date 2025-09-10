@@ -19,7 +19,7 @@ This page tests MyST templating for embedding polar maps with dynamic configurat
    
    <iframe 
        id="polar-map-1"
-       src="./_static/maps/polar.html" 
+       src="../_static/maps/polar.html" 
        width="100%" 
        height="600"
        frameborder="0"
@@ -70,7 +70,6 @@ Let's try embedding the configuration directly in a script tag that runs before 
 
 ## Option 4: Using HTML literals
 
-```{raw} html
 <script>
     window.GREENLAND_CONFIG = {
         pole: 'north',
@@ -82,14 +81,13 @@ Let's try embedding the configuration directly in a script tag that runs before 
     };
 </script>
 <iframe 
-    src="./_static/maps/polar.html" 
+    src="../_static/maps/polar.html" 
     width="100%" 
     height="600"
     frameborder="0"
     style="border: 1px solid #ccc; border-radius: 5px;"
     onload="this.contentWindow.CONFIG = window.GREENLAND_CONFIG">
 </iframe>
-```
 
 ## Option 5: Creating a custom directive
 
