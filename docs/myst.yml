@@ -14,13 +14,11 @@ project:
     - title: Notebooks
       children:
         - file: notebooks/demo_notebook.ipynb
-        - file: notebooks/search_and_scaling.ipynb
+        #- file: notebooks/search_and_scaling.ipynb
         - file: notebooks/reading_params.ipynb
         - file: notebooks/crossovers.ipynb
         - file: notebooks/test_polar_map.ipynb
-        - file: notebooks/test_polar_map_working.md
-        - file: notebooks/test_myst_substitutions.md
-        - file: notebooks/test_template.md
+        - file: notebooks/polar_maps.ipynb
     
 site:
   template: book-theme
