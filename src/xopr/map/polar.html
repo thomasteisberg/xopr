@@ -49,20 +49,10 @@
     <div class="cors-status" id="corsStatus"></div>
     
     <script type="module">
-        // Dynamic import path resolution - works with relative paths
-        const getBasePath = () => {
-            // Get the directory containing this HTML file
-            const pathname = window.location.pathname;
-            const pathParts = pathname.split('/');
-            pathParts.pop(); // Remove the HTML filename
-            return pathParts.join('/') || '.';
-        };
-        
-        const basePath = getBasePath();
-        const wasmModulePath = basePath + '/parquet_wasm.js';
-        
-        console.log('Loading WASM module from:', wasmModulePath);
-        const { default: init, readParquet } = await import(wasmModulePath);
+        // Load WASM modules from Google Cloud Storage to avoid path resolution issues
+        // Local files are at: src/xopr/map/parquet_wasm.js and src/xopr/map/parquet_wasm_bg.wasm
+        console.log('Loading WASM module from GCS');
+        const { default: init, readParquet } = await import('https://storage.googleapis.com/opr_test_dataset_1/parquet_wasm.js');
         import * as arrow from 'https://cdn.jsdelivr.net/npm/apache-arrow@14.0.2/+esm';
         
         // Make CONFIG settable even before the script runs
@@ -371,10 +361,10 @@
         async function initialize() {
             try {
                 console.log('Initializing parquet-wasm...');
-                // Use the same base path for WASM file
-                const wasmPath = basePath + '/parquet_wasm_bg.wasm';
+                // Load WASM binary from GCS (local file at: src/xopr/map/parquet_wasm_bg.wasm)
+                const wasmPath = 'https://storage.googleapis.com/opr_test_dataset_1/parquet_wasm_bg.wasm';
                 
-                console.log('WASM path resolved to:', wasmPath);
+                console.log('Loading WASM binary from GCS');
                 await init(wasmPath);
                 console.log('parquet-wasm initialized successfully');
                 
