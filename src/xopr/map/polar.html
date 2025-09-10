@@ -313,6 +313,8 @@
                 
                 const features = [];
                 const geometryColumn = arrowTable.getChild('geometry');
+                const idColumn = arrowTable.getChild('id');
+                const collectionColumn = arrowTable.getChild('collection');
                 const nameColumn = arrowTable.getChild('name');
                 const descriptionColumn = arrowTable.getChild('description');
                 
@@ -341,6 +343,8 @@
                         if (olGeometry) {
                             features.push(new ol.Feature({
                                 geometry: olGeometry,
+                                id: idColumn?.get(i) || `feature_${i}`,
+                                collection: collectionColumn?.get(i) || '',
                                 name: nameColumn?.get(i) || `Feature ${i}`,
                                 description: descriptionColumn?.get(i) || '',
                                 source_file: filename
@@ -445,7 +449,7 @@
                     if (feature) {
                         const props = feature.getProperties();
                         document.getElementById('info').innerHTML = 
-                            `<strong>${props.name}</strong>${props.description ? '<br>' + props.description : ''}`;
+                            `<strong>ID:</strong> ${props.id}<br><strong>Collection:</strong> ${props.collection}`;
                     } else {
                         const coords = evt.coordinate;
                         const lonlat = ol.proj.transform(coords, projConfig.code, 'EPSG:4326');
