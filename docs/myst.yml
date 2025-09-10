@@ -13,6 +13,7 @@ project:
     - file: index.md
     - title: Notebooks
       children:
+        - file: notebooks/polar_maps.ipynb
         - file: notebooks/demo_notebook.ipynb
         #- file: notebooks/search_and_scaling.ipynb
         - file: notebooks/reading_params.ipynb
