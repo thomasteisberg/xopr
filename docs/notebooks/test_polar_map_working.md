@@ -12,7 +12,7 @@ Below is an Antarctic map showing test data. The map loads GeoParquet files dire
     height="600"
     frameborder="0"
     style="border: 1px solid #ccc; border-radius: 5px;"
-    onload="this.contentWindow.CONFIG = {pole: 'south', parquetFiles: ['https://storage.googleapis.com/opr_stac/testing/2011_Antarctica_DC8.parquet'], defaultZoom: 3}">
+    onload="this.contentWindow.CONFIG = {pole: 'south', parquetFiles: ['https://storage.googleapis.com/opr_test_dataset_1/test_antarctic_random_walk.parquet'], defaultZoom: 3}">
 </iframe>
 
 ## How It Works
