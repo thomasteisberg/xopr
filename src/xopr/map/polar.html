@@ -287,6 +287,9 @@
             throw new Error('Failed to fetch resource');
         }
         
+        // Store collection geometries by filename
+        const collectionGeometries = {};
+        
         // Load parquet file with smart CORS handling
         async function loadParquetFile(filename, projConfig) {
             console.log(`Loading parquet file: ${filename}`);
@@ -308,6 +311,24 @@
                 const arrayBuffer = await response.arrayBuffer();
                 console.log(`Successfully fetched ${filename}, size: ${arrayBuffer.byteLength} bytes`);
                 const wasmTable = readParquet(new Uint8Array(arrayBuffer));
+                
+                // Try to extract collection geometry from metadata
+                try {
+                    const metadata = wasmTable.metadata();
+                    if (metadata) {
+                        const metadataObj = JSON.parse(metadata);
+                        if (metadataObj['stac-geoparquet'] && metadataObj['stac-geoparquet'].collection) {
+                            const collection = metadataObj['stac-geoparquet'].collection;
+                            if (collection['proj:geometry']) {
+                                console.log('Found proj:geometry for', filename);
+                                collectionGeometries[filename] = collection['proj:geometry'];
+                            }
+                        }
+                    }
+                } catch (e) {
+                    console.log('Could not parse metadata for collection geometry:', e);
+                }
+                
                 const ipcStream = wasmTable.intoIPCStream();
                 const arrowTable = arrow.tableFromIPC(ipcStream);
                 
@@ -394,31 +415,40 @@
                 if (allFeatures.length > 0) {
                     const vectorSource = new ol.source.Vector({ features: allFeatures });
                     
+                    // Track selected feature
+                    let selectedFeature = null;
+                    
                     // Style function for different geometry types
                     const styleFunction = function(feature) {
                         const geomType = feature.getGeometry().getType();
+                        const isSelected = feature === selectedFeature;
+                        
+                        // Use blue for selected features, red for normal
+                        const color = isSelected ? 'rgba(0, 100, 255, 0.8)' : 'rgba(255, 0, 0, 0.8)';
+                        const strokeColor = isSelected ? '#0064ff' : '#ff0000';
+                        const fillColor = isSelected ? 'rgba(0, 100, 255, 0.2)' : 'rgba(255, 0, 0, 0.1)';
                         
                         const styles = {
                             'Point': new ol.style.Style({
                                 image: new ol.style.Circle({
-                                    radius: 6,
-                                    fill: new ol.style.Fill({ color: 'rgba(255, 0, 0, 0.8)' }),
-                                    stroke: new ol.style.Stroke({ color: '#fff', width: 1.5 })
+                                    radius: isSelected ? 8 : 6,
+                                    fill: new ol.style.Fill({ color: color }),
+                                    stroke: new ol.style.Stroke({ color: '#fff', width: isSelected ? 2 : 1.5 })
                                 })
                             }),
                             'LineString': new ol.style.Style({
                                 stroke: new ol.style.Stroke({
-                                    color: '#ff0000',
-                                    width: 2
+                                    color: strokeColor,
+                                    width: isSelected ? 4 : 2
                                 })
                             }),
                             'Polygon': new ol.style.Style({
                                 stroke: new ol.style.Stroke({
-                                    color: '#ff0000',
-                                    width: 2
+                                    color: strokeColor,
+                                    width: isSelected ? 3 : 2
                                 }),
                                 fill: new ol.style.Fill({
-                                    color: 'rgba(255, 0, 0, 0.1)'
+                                    color: fillColor
                                 })
                             })
                         };
@@ -432,6 +462,27 @@
                     });
                     
                     map.addLayer(vectorLayer);
+                    
+                    // Create a layer for collection geometries (green overlay)
+                    const collectionSource = new ol.source.Vector();
+                    const collectionLayer = new ol.layer.Vector({
+                        source: collectionSource,
+                        style: new ol.style.Style({
+                            stroke: new ol.style.Stroke({
+                                color: 'rgba(0, 255, 0, 0.8)',
+                                width: 3
+                            }),
+                            fill: new ol.style.Fill({
+                                color: 'rgba(0, 255, 0, 0.1)'
+                            }),
+                            image: new ol.style.Circle({
+                                radius: 10,
+                                fill: new ol.style.Fill({ color: 'rgba(0, 255, 0, 0.8)' }),
+                                stroke: new ol.style.Stroke({ color: '#fff', width: 2 })
+                            })
+                        })
+                    });
+                    map.addLayer(collectionLayer);
                     
                     // Fit to extent
                     const extent = vectorSource.getExtent();
@@ -447,10 +498,49 @@
                 map.on('click', function(evt) {
                     const feature = map.forEachFeatureAtPixel(evt.pixel, f => f);
                     if (feature) {
+                        // Update selected feature and refresh styles
+                        selectedFeature = feature;
+                        vectorSource.changed();  // Trigger style refresh
+                        
                         const props = feature.getProperties();
+                        
+                        // Clear previous collection geometry
+                        collectionSource.clear();
+                        
+                        // Add collection geometry if available
+                        const sourceFile = props.source_file;
+                        if (sourceFile && collectionGeometries[sourceFile]) {
+                            const collGeom = collectionGeometries[sourceFile];
+                            let olGeometry;
+                            
+                            if (collGeom.type === 'LineString') {
+                                const coords = collGeom.coordinates.map(c => 
+                                    ol.proj.transform(c, 'EPSG:4326', projConfig.code)
+                                );
+                                olGeometry = new ol.geom.LineString(coords);
+                            } else if (collGeom.type === 'Polygon') {
+                                const rings = collGeom.coordinates.map(ring =>
+                                    ring.map(c => ol.proj.transform(c, 'EPSG:4326', projConfig.code))
+                                );
+                                olGeometry = new ol.geom.Polygon(rings);
+                            } else if (collGeom.type === 'Point') {
+                                const coords = ol.proj.transform(collGeom.coordinates, 'EPSG:4326', projConfig.code);
+                                olGeometry = new ol.geom.Point(coords);
+                            }
+                            
+                            if (olGeometry) {
+                                const collFeature = new ol.Feature({ geometry: olGeometry });
+                                collectionSource.addFeature(collFeature);
+                            }
+                        }
+                        
                         document.getElementById('info').innerHTML = 
                             `<strong>ID:</strong> ${props.id}<br><strong>Collection:</strong> ${props.collection}`;
                     } else {
+                        // Clear selection when clicking empty space
+                        selectedFeature = null;
+                        vectorSource.changed();
+                        collectionSource.clear();  // Clear collection geometry
                         const coords = evt.coordinate;
                         const lonlat = ol.proj.transform(coords, projConfig.code, 'EPSG:4326');
                         document.getElementById('info').innerHTML = 
