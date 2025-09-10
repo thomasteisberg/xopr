@@ -493,14 +493,14 @@ class OPRConnection:
             'Surface': ('slow_time',),
             'Data': ('twtt', 'slow_time')
         }
-
+        
         ds = xr.Dataset(
             {
                 key: (dims, np.squeeze(m[key])) for key, dims in key_dims.items() if key in m
             },
             coords={
                 'twtt': ('twtt', np.squeeze(m['Time'])),
-                'slow_time': ('slow_time', np.squeeze(m['GPS_time'])),
+                'slow_time': ('slow_time', pd.to_datetime(np.squeeze(m['GPS_time']), unit='s')),
             }
         )
 
