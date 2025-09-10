@@ -11,7 +11,7 @@ import urllib.parse
 
 ops_base_url = "https://ops.cresis.ku.edu/ops"
 
-def get_layer_points(segment_name : str, season_name : str, location=None, layer_names=None, include_geometry=True):
+def get_layer_points(segment_name : str, season_name : str, location=None, layer_names=None, include_geometry=True, raise_errors=True):
     """
     Get layer points for a segment from the OPS API.
 
@@ -92,10 +92,14 @@ def get_layer_points(segment_name : str, season_name : str, location=None, layer
         
     except requests.exceptions.RequestException as e:
         print(f"Error making request: {e}")
+        if raise_errors:
+            raise e
         return None
     except json.JSONDecodeError as e:
         print(f"Error parsing JSON response: {e}")
         print(f"Response text: {response.text}")
+        if raise_errors:
+            raise e
         return None
 
 
