@@ -70,7 +70,7 @@ jobs:
     - name: Build Jupyter Book
       run: |
         cd docs
-        uv run --extra docs jupyter-book build --html --execute 2>&1 | tee jupyter-book-build.log
+        BASE_URL=/xopr uv run --extra docs jupyter-book build --html --execute 2>&1 | tee jupyter-book-build.log
         # Check for errors running the notebooks and fail if any are found
         if grep -r "Error\\|Exception\\|Traceback" jupyter-book-build.log; then
           echo "Found execution errors in build"

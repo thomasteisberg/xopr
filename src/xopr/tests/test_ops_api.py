@@ -61,12 +61,8 @@ def test_get_segment_metadata_valid_flights(season, flight_id):
 @pytest.mark.parametrize("season,flight_id", invalid_flights)
 def test_get_segment_metadata_invalid_flights(season, flight_id):
     """
-    Test that get_segment_metadata returns None for invalid flights.
-    
-    This test verifies that invalid flight combinations (non-existent flights,
-    malformed flight IDs, missing parameters) return None.
+    Test that get_segment_metadata returns status code 0 for invalid flights.
     """
     result = xopr.ops_api.get_segment_metadata(flight_id, season)
-    
-    # Should return None for invalid flights
-    assert result is None, f"Expected None for invalid flight {season}/{flight_id}, got {result}"
+
+    assert result.get('status') == 0, f"Expected status 0 for invalid flight {season}/{flight_id}, got {result.get('status')}"
