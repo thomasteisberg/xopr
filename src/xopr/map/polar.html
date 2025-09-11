@@ -167,73 +167,8 @@
             return { map, projConfig, CONFIG };
         }
         
-        // WKB parser
-        function parseWKB(wkbData) {
-            try {
-                let buffer;
-                if (wkbData instanceof Uint8Array) {
-                    buffer = wkbData.buffer.slice(wkbData.byteOffset, wkbData.byteOffset + wkbData.byteLength);
-                } else if (wkbData instanceof ArrayBuffer) {
-                    buffer = wkbData;
-                } else if (wkbData && wkbData.toArray) {
-                    const arr = wkbData.toArray();
-                    buffer = new Uint8Array(arr).buffer;
-                } else {
-                    return null;
-                }
-                
-                const view = new DataView(buffer);
-                let offset = 0;
-                const littleEndian = view.getUint8(offset) === 1;
-                offset += 1;
-                
-                const geomType = view.getUint32(offset, littleEndian);
-                offset += 4;
-                
-                if (geomType === 1) { // Point
-                    const x = view.getFloat64(offset, littleEndian);
-                    offset += 8;
-                    const y = view.getFloat64(offset, littleEndian);
-                    return { type: 'Point', coordinates: [x, y] };
-                    
-                } else if (geomType === 2) { // LineString
-                    const numPoints = view.getUint32(offset, littleEndian);
-                    offset += 4;
-                    const coordinates = [];
-                    for (let i = 0; i < numPoints; i++) {
-                        const x = view.getFloat64(offset, littleEndian);
-                        offset += 8;
-                        const y = view.getFloat64(offset, littleEndian);
-                        offset += 8;
-                        coordinates.push([x, y]);
-                    }
-                    return { type: 'LineString', coordinates };
-                    
-                } else if (geomType === 3) { // Polygon
-                    const numRings = view.getUint32(offset, littleEndian);
-                    offset += 4;
-                    const rings = [];
-                    for (let r = 0; r < numRings; r++) {
-                        const numPoints = view.getUint32(offset, littleEndian);
-                        offset += 4;
-                        const ring = [];
-                        for (let i = 0; i < numPoints; i++) {
-                            const x = view.getFloat64(offset, littleEndian);
-                            offset += 8;
-                            const y = view.getFloat64(offset, littleEndian);
-                            offset += 8;
-                            ring.push([x, y]);
-                        }
-                        rings.push(ring);
-                    }
-                    return { type: 'Polygon', coordinates: rings };
-                }
-                return null;
-            } catch (e) {
-                console.error('WKB parse error:', e);
-                return null;
-            }
-        }
+        // Initialize WKB format reader
+        const wkbFormat = new ol.format.WKB();
         
         // Smart fetch with automatic CORS proxy fallback
         async function smartFetch(url, options = {}) {
@@ -322,35 +257,29 @@
                 for (let i = 0; i < arrowTable.numRows; i++) {
                 const wkbData = geometryColumn?.get(i);
                 if (wkbData) {
-                    const geom = parseWKB(wkbData);
-                    if (geom) {
-                        let olGeometry;
-                        
-                        if (geom.type === 'Point') {
-                            const coords = ol.proj.transform(geom.coordinates, 'EPSG:4326', projConfig.code);
-                            olGeometry = new ol.geom.Point(coords);
-                        } else if (geom.type === 'LineString') {
-                            const coords = geom.coordinates.map(c => 
-                                ol.proj.transform(c, 'EPSG:4326', projConfig.code)
-                            );
-                            olGeometry = new ol.geom.LineString(coords);
-                        } else if (geom.type === 'Polygon') {
-                            const rings = geom.coordinates.map(ring =>
-                                ring.map(c => ol.proj.transform(c, 'EPSG:4326', projConfig.code))
-                            );
-                            olGeometry = new ol.geom.Polygon(rings);
-                        }
-                        
-                        if (olGeometry) {
-                            features.push(new ol.Feature({
-                                geometry: olGeometry,
-                                id: idColumn?.get(i) || `feature_${i}`,
-                                collection: collectionColumn?.get(i) || '',
-                                name: nameColumn?.get(i) || `Feature ${i}`,
-                                description: descriptionColumn?.get(i) || '',
-                                source_file: filename
-                            }));
-                        }
+                    // Convert Arrow data to format OpenLayers can read
+                    // OpenLayers accepts ArrayBuffer, ArrayBufferView (like Uint8Array), or string
+                    let wkbInput = wkbData;
+                    if (wkbData.toArray) {
+                        // Handle Arrow-specific format
+                        wkbInput = new Uint8Array(wkbData.toArray());
+                    }
+                    
+                    // Use OpenLayers' built-in WKB reader with automatic projection transformation
+                    const olGeometry = wkbFormat.readGeometry(wkbInput, {
+                        dataProjection: 'EPSG:4326',
+                        featureProjection: projConfig.code
+                    });
+                    
+                    if (olGeometry) {
+                        features.push(new ol.Feature({
+                            geometry: olGeometry,
+                            id: idColumn?.get(i) || `feature_${i}`,
+                            collection: collectionColumn?.get(i) || '',
+                            name: nameColumn?.get(i) || `Feature ${i}`,
+                            description: descriptionColumn?.get(i) || '',
+                            source_file: filename
+                        }));
                     }
                 }
                 }
