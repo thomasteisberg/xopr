@@ -288,7 +288,8 @@
         }
         
         // Store collection geometries by filename
-        const collectionGeometries = {};
+        // TODO: Re-enable once metadata extraction is fixed
+        // const collectionGeometries = {};
         
         // Load parquet file with smart CORS handling
         async function loadParquetFile(filename, projConfig) {
@@ -315,7 +316,16 @@
                 const ipcStream = wasmTable.intoIPCStream();
                 const arrowTable = arrow.tableFromIPC(ipcStream);
                 
-                // Try to extract collection geometry from Arrow table metadata
+                // TODO: Extract collection geometry from Arrow table metadata
+                // Currently disabled because the parquet files are encoding multiline strings 
+                // as concatenated linestrings instead of proper multiline geometries.
+                // 
+                // Ideally, we would use the upstream Rust PR to parquet-wasm that adds a
+                // read_parquet_with_metadata() function to properly expose file metadata.
+                // See parquet_metadata_helper.js for the proposed implementation.
+                //
+                // Once that's available, uncomment and modify this code:
+                /*
                 try {
                     // Check if the Arrow table schema has metadata
                     if (arrowTable.schema && arrowTable.schema.metadata) {
@@ -336,6 +346,7 @@
                 } catch (e) {
                     console.log('Could not parse metadata for collection geometry:', e);
                 }
+                */
                 
                 const features = [];
                 const geometryColumn = arrowTable.getChild('geometry');
@@ -420,7 +431,8 @@
                 // Track selected feature (define outside if block)
                 let selectedFeature = null;
                 let vectorSource = null;
-                let collectionSource = null;
+                // TODO: Re-enable once collection geometry is implemented
+                // let collectionSource = null;
                 
                 if (allFeatures.length > 0) {
                     vectorSource = new ol.source.Vector({ features: allFeatures });
@@ -470,7 +482,9 @@
                     
                     map.addLayer(vectorLayer);
                     
+                    // TODO: Re-enable collection geometry layer once metadata extraction is fixed
                     // Create a layer for collection geometries (green overlay)
+                    /*
                     collectionSource = new ol.source.Vector();
                     const collectionLayer = new ol.layer.Vector({
                         source: collectionSource,
@@ -490,6 +504,7 @@
                         })
                     });
                     map.addLayer(collectionLayer);
+                    */
                     
                     // Fit to extent
                     const extent = vectorSource.getExtent();
@@ -511,9 +526,13 @@
                         
                         const props = feature.getProperties();
                         
-                        // Clear previous collection geometry
-                        collectionSource.clear();
+                        // Clear previous collection geometry  
+                        // TODO: Re-enable once collection geometry is implemented
+                        // collectionSource.clear();
                         
+                        // TODO: Re-enable collection geometry display once metadata extraction is fixed
+                        // Currently disabled - see metadata extraction comment above
+                        /*
                         // Add collection geometry if available
                         const sourceFile = props.source_file;
                         if (sourceFile && collectionGeometries[sourceFile]) {
@@ -540,6 +559,7 @@
                                 collectionSource.addFeature(collFeature);
                             }
                         }
+                        */
                         
                         document.getElementById('info').innerHTML = 
                             `<strong>ID:</strong> ${props.id}<br><strong>Collection:</strong> ${props.collection}`;
@@ -547,7 +567,8 @@
                         // Clear selection when clicking empty space
                         selectedFeature = null;
                         vectorSource.changed();
-                        collectionSource.clear();  // Clear collection geometry
+                        // TODO: Re-enable once collection geometry is implemented
+                        // collectionSource.clear();  // Clear collection geometry
                         const coords = evt.coordinate;
                         const lonlat = ol.proj.transform(coords, projConfig.code, 'EPSG:4326');
                         document.getElementById('info').innerHTML = 
