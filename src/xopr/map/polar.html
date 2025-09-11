@@ -312,25 +312,30 @@
                 console.log(`Successfully fetched ${filename}, size: ${arrayBuffer.byteLength} bytes`);
                 const wasmTable = readParquet(new Uint8Array(arrayBuffer));
                 
-                // Try to extract collection geometry from metadata
+                const ipcStream = wasmTable.intoIPCStream();
+                const arrowTable = arrow.tableFromIPC(ipcStream);
+                
+                // Try to extract collection geometry from Arrow table metadata
                 try {
-                    const metadata = wasmTable.metadata();
-                    if (metadata) {
-                        const metadataObj = JSON.parse(metadata);
-                        if (metadataObj['stac-geoparquet'] && metadataObj['stac-geoparquet'].collection) {
-                            const collection = metadataObj['stac-geoparquet'].collection;
-                            if (collection['proj:geometry']) {
-                                console.log('Found proj:geometry for', filename);
-                                collectionGeometries[filename] = collection['proj:geometry'];
+                    // Check if the Arrow table schema has metadata
+                    if (arrowTable.schema && arrowTable.schema.metadata) {
+                        const metadata = arrowTable.schema.metadata;
+                        
+                        // Look for stac-geoparquet metadata
+                        for (const [key, value] of metadata) {
+                            if (key === 'stac-geoparquet' || key === 'stac:geoparquet') {
+                                const stacMeta = JSON.parse(value);
+                                if (stacMeta.collection && stacMeta.collection['proj:geometry']) {
+                                    console.log('Found proj:geometry for', filename);
+                                    collectionGeometries[filename] = stacMeta.collection['proj:geometry'];
+                                    break;
+                                }
                             }
                         }
                     }
                 } catch (e) {
                     console.log('Could not parse metadata for collection geometry:', e);
                 }
-                
-                const ipcStream = wasmTable.intoIPCStream();
-                const arrowTable = arrow.tableFromIPC(ipcStream);
                 
                 const features = [];
                 const geometryColumn = arrowTable.getChild('geometry');
@@ -412,11 +417,13 @@
                     }
                 }
                 
+                // Track selected feature (define outside if block)
+                let selectedFeature = null;
+                let vectorSource = null;
+                let collectionSource = null;
+                
                 if (allFeatures.length > 0) {
-                    const vectorSource = new ol.source.Vector({ features: allFeatures });
-                    
-                    // Track selected feature
-                    let selectedFeature = null;
+                    vectorSource = new ol.source.Vector({ features: allFeatures });
                     
                     // Style function for different geometry types
                     const styleFunction = function(feature) {
@@ -464,7 +471,7 @@
                     map.addLayer(vectorLayer);
                     
                     // Create a layer for collection geometries (green overlay)
-                    const collectionSource = new ol.source.Vector();
+                    collectionSource = new ol.source.Vector();
                     const collectionLayer = new ol.layer.Vector({
                         source: collectionSource,
                         style: new ol.style.Style({
