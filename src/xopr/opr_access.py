@@ -17,7 +17,7 @@ import h5py
 from .cf_units import apply_cf_compliant_attrs
 from .matlab_attribute_utils import decode_hdf5_matlab_variable, extract_legacy_mat_attributes
 from .util import merge_dicts_no_conflicts
-from . import ops_api, radar_util
+from . import ops_api
 
 class OPRConnection:
     def __init__(self,
@@ -411,8 +411,6 @@ class OPRConnection:
             ds.attrs.update(extract_legacy_mat_attributes(file,
                                                           skip_keys=ds.keys(),
                                                           skip_errors=True))
-
-        ds = radar_util.add_along_track(ds)
 
         return ds
     

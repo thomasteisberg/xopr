@@ -40,7 +40,7 @@ def add_along_track(ds: xr.Dataset, projection: str = None) -> xr.Dataset:
     along_track = np.cumsum(distances)
     
     # Add the along-track coordinate to the original dataset
-    ds['along_track'] = along_track
+    ds = ds.assign_coords(along_track=('slow_time', along_track))
     ds['along_track'].attrs['units'] = 'meters'
     ds['along_track'].attrs['description'] = 'Cumulative distance along the radar track'
 
@@ -71,7 +71,7 @@ def estimate_vertical_distances(ds: xr.Dataset, epsilon_ice: float = 3.15) -> xr
     
     # Multiply against the differences in the twtt dimension to get the distance intervals
     twtt_intervals = np.diff(ds['twtt'])
-    twtt_intervals = np.insert(twtt_intervals, 0, twtt_intervals[0])  # Add the first interval
+    twtt_intervals = np.insert(twtt_intervals, 0, ds['twtt'].isel(twtt=0))  # Add the first interval
     twtt_intervals = xr.DataArray(twtt_intervals, dims=['twtt'], coords={'twtt': ds['twtt']})
 
     # Calculate distance for each interval (one-way distance = speed * time / 2)
@@ -140,13 +140,10 @@ def interpolate_to_vertical_grid(ds: xr.Dataset,
     # Create regular vertical distance grid
     regular_vert = np.arange(vert_min, vert_max, vert_spacing)
     
-    # Get along-track values
-    along_track = ds['along_track'].values
-    
     # Use 1D interpolation along each trace (much faster than 2D griddata)
     from scipy.interpolate import interp1d
     
-    n_traces = ds.sizes['slow_time']
+    n_traces = len(ds['slow_time'])
     n_vert = len(regular_vert)
     data_regular = np.full((n_traces, n_vert), np.nan, dtype=np.float32)
     
@@ -154,24 +151,21 @@ def interpolate_to_vertical_grid(ds: xr.Dataset,
     for i in range(n_traces):
         trace_data = ds['Data'].isel(slow_time=i).values
         trace_vert = vert_dist.isel(slow_time=i).values
+
+        if vertical_coordinate == 'wgs84':
+            trace_data = trace_data[::-1]
+            trace_vert = trace_vert[::-1]
         
         # Remove NaN values for this trace
         valid_idx = ~(np.isnan(trace_data) | np.isnan(trace_vert))
+
+        if not np.all(np.diff(trace_vert[valid_idx]) > 0):
+            raise ValueError("Vertical distances must be strictly increasing for interpolation.")
         
         if np.sum(valid_idx) > 1:  # Need at least 2 points for interpolation
-            # Sort by vertical distance for interpolation
-            sort_idx = np.argsort(trace_vert[valid_idx])
-            vert_sorted = trace_vert[valid_idx][sort_idx]
-            data_sorted = trace_data[valid_idx][sort_idx]
-            
-            # Only interpolate within the range of available data
-            vert_range = (regular_vert >= vert_sorted.min()) & (regular_vert <= vert_sorted.max())
-            
-            if np.sum(vert_range) > 0:
-                # Use linear interpolation (much faster than griddata)
-                interp_func = interp1d(vert_sorted, data_sorted, kind='linear', 
-                                     bounds_error=False, fill_value=np.nan)
-                data_regular[i, vert_range] = interp_func(regular_vert[vert_range])
+            data_regular[i, :] = np.interp(regular_vert, trace_vert[valid_idx],
+                                                    trace_data[valid_idx],
+                                                    left=-1, right=-2)
     
     # Create new dataset
     ds_regular = xr.Dataset(
@@ -180,10 +174,13 @@ def interpolate_to_vertical_grid(ds: xr.Dataset,
         },
         coords={
             'slow_time': ds['slow_time'],
-            'along_track': ('slow_time', along_track),
             vert_coord_name: regular_vert,
         }
     )
+
+    if 'along_track' in ds:
+        along_track = ds['along_track'].values
+        ds_regular = ds_regular.assign_coords(along_track=('slow_time', along_track))
 
     for data_var in ds.data_vars:
         if data_var not in ['Data']:
@@ -198,3 +195,67 @@ def interpolate_to_vertical_grid(ds: xr.Dataset,
         ds_regular[vert_coord_name].attrs['description'] = 'WGS84 Elevation (meters)'
 
     return ds_regular
+
+def layer_twtt_to_range(layer_ds, surface_layer_ds, vertical_coordinate='range', subsurface_dielectric_permittivity=3.15):
+    """
+    Convert layer two-way travel time (TWTT) to range or elevation coordinates.
+    
+    Parameters:
+    -----------
+    layer_ds : xr.Dataset
+        Dataset containing layer TWTT values
+    surface_layer_ds : xr.Dataset
+        Dataset containing surface layer TWTT values (typically layer 1)
+    vertical_coordinate : str
+        'range' for distance from aircraft or 'elevation'/'wgs84' for WGS84 elevation
+    subsurface_dielectric_permittivity : float
+        Dielectric permittivity for subsurface propagation (default 3.15 for ice)
+    
+    Returns:
+    --------
+    xr.Dataset
+        Copy of layer_ds with added 'range' or 'wgs84' field containing layer positions
+    """
+    # Create a copy of the layer dataset
+    result_ds = layer_ds.copy()
+    
+    # Calculate speed of light in the subsurface medium
+    speed_in_medium = scipy.constants.c / np.sqrt(subsurface_dielectric_permittivity)
+    
+    # Get TWTT values
+    layer_twtt = layer_ds['twtt']
+    surface_twtt = surface_layer_ds['twtt']
+    
+    # Calculate surface range (distance from aircraft to surface)
+    surface_range = surface_twtt * (scipy.constants.c / 2)
+    
+    # Calculate TWTT difference from surface to layer
+    twtt_from_surface = layer_twtt - surface_twtt
+    
+    # Calculate range from aircraft to layer
+    layer_range = surface_range + (twtt_from_surface * (speed_in_medium / 2))
+
+    if vertical_coordinate == 'range':
+        result_ds['range'] = layer_range
+        result_ds['range'].attrs['units'] = 'meters'
+        result_ds['range'].attrs['description'] = 'Range from aircraft to layer'
+    elif vertical_coordinate == 'elevation' or vertical_coordinate == 'wgs84':
+        # Calculate WGS84 elevation
+        # Surface elevation = aircraft elevation - surface range
+        if 'elev' in surface_layer_ds:
+            surface_elev = surface_layer_ds['elev']
+        else:
+            raise ValueError("Surface elevation data ('elev') required for elevation coordinate conversion")
+        
+        surface_wgs84 = surface_elev - surface_range
+        
+        # Layer elevation = surface elevation - distance from surface to layer
+        layer_wgs84 = surface_wgs84 - (twtt_from_surface * (speed_in_medium / 2))
+        
+        result_ds['wgs84'] = layer_wgs84
+        result_ds['wgs84'].attrs['units'] = 'meters'
+        result_ds['wgs84'].attrs['description'] = 'WGS84 elevation of layer'
+    else:
+        raise ValueError(f"Unknown vertical coordinate: {vertical_coordinate}. Use 'range', 'elevation', or 'wgs84'.")
+
+    return result_ds
