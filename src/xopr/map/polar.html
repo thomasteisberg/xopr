@@ -55,7 +55,55 @@
         const { default: init, readParquet } = await import('https://storage.googleapis.com/opr_test_dataset_1/parquet_wasm.js');
         import * as arrow from 'https://cdn.jsdelivr.net/npm/apache-arrow@14.0.2/+esm';
         
-        // Make CONFIG settable even before the script runs
+        // Parse configuration from URL parameters
+        function parseConfigFromURL() {
+            const urlParams = new URLSearchParams(window.location.search);
+            const config = {};
+            
+            // Get pole parameter
+            if (urlParams.has('pole')) {
+                config.pole = urlParams.get('pole');
+            }
+            
+            // Get dataPath parameter (base URL for files)
+            if (urlParams.has('dataPath')) {
+                config.dataPath = urlParams.get('dataPath');
+            }
+            
+            // Get parquetFiles parameter (JSON array of filenames)
+            if (urlParams.has('parquetFiles')) {
+                try {
+                    const files = JSON.parse(urlParams.get('parquetFiles'));
+                    // If dataPath is provided, prepend it to each filename
+                    if (config.dataPath) {
+                        config.parquetFiles = files.map(file => {
+                            // If file is already a full URL, use as-is
+                            if (file.startsWith('http://') || file.startsWith('https://')) {
+                                return file;
+                            }
+                            // Otherwise, prepend the dataPath
+                            const basePath = config.dataPath.endsWith('/') ? config.dataPath : config.dataPath + '/';
+                            return basePath + file;
+                        });
+                    } else {
+                        // No dataPath, use files as-is (they should be full URLs)
+                        config.parquetFiles = files;
+                    }
+                } catch (e) {
+                    console.error('Failed to parse parquetFiles from URL:', e);
+                    config.parquetFiles = [];
+                }
+            }
+            
+            // Get defaultZoom parameter
+            if (urlParams.has('defaultZoom')) {
+                config.defaultZoom = parseInt(urlParams.get('defaultZoom'), 10) || 3;
+            }
+            
+            return config;
+        }
+        
+        // Make CONFIG settable even before the script runs (for backwards compatibility)
         if (typeof window.CONFIG === 'undefined') {
             window.CONFIG = null;
         }
@@ -63,46 +111,53 @@
         // Allow parent to set CONFIG even after initialization
         let configUsed = false;
         
-        // Wait for CONFIG to be set by parent window (NO DEFAULTS)
+        // Get CONFIG from URL params or parent window
         function getConfig() {
-            // Check if CONFIG was set by parent window
+            // First, try to get config from URL parameters
+            const urlConfig = parseConfigFromURL();
+            if (urlConfig && Object.keys(urlConfig).length > 0) {
+                console.log('Using URL parameter CONFIG:', urlConfig);
+                window.CONFIG = urlConfig;
+                configUsed = true;
+                return urlConfig;
+            }
+            
+            // Fallback: Check if CONFIG was set by parent window
             if (window.CONFIG && typeof window.CONFIG === 'object') {
                 console.log('Using parent-provided CONFIG:', window.CONFIG);
                 configUsed = true;
                 return window.CONFIG;
             }
+            
             // No defaults - CONFIG must be explicitly provided
             console.error('ERROR: No CONFIG provided. Map requires configuration.');
             document.getElementById('map').innerHTML = 
                 '<div style="padding: 20px; text-align: center; color: #721c24; background: #f8d7da; border: 1px solid #f5c6cb; border-radius: 4px; margin: 20px;">' +
                 '<strong>Configuration Required</strong><br>' +
-                'CONFIG must be provided with pole and parquetFiles.<br>' +
-                '<code style="font-size: 11px;">Example: {pole: "south", parquetFiles: [...], defaultZoom: 3}</code>' +
+                'CONFIG must be provided via URL parameters or parent window.<br>' +
+                '<code style="font-size: 11px;">URL params: ?pole=south&parquetFiles=["file.parquet"]&defaultZoom=3</code>' +
                 '</div>';
             return null;
         }
         
-        // Delay initialization to allow parent to set CONFIG
+        // Simplified wait function since URL params are available immediately
         async function waitForConfig() {
-            // Give parent window more time to set CONFIG
-            // Try multiple times to check for CONFIG
-            for (let i = 0; i < 10; i++) {
+            // Check URL params first (available immediately)
+            const urlConfig = parseConfigFromURL();
+            if (urlConfig && Object.keys(urlConfig).length > 0) {
+                return urlConfig;
+            }
+            
+            // Give parent window a brief chance to set CONFIG
+            for (let i = 0; i < 5; i++) {
                 if (window.CONFIG && typeof window.CONFIG === 'object') {
-                    console.log(`CONFIG found after ${i * 50}ms`);
-                    break;
+                    console.log(`Parent CONFIG found after ${i * 50}ms`);
+                    return window.CONFIG;
                 }
                 await new Promise(resolve => setTimeout(resolve, 50));
             }
             
-            // Final wait for document ready
-            await new Promise(resolve => {
-                if (document.readyState !== 'complete') {
-                    window.addEventListener('load', resolve);
-                } else {
-                    setTimeout(resolve, 50);
-                }
-            });
-            
+            // Final check
             return getConfig();
         }
         
