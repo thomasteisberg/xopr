@@ -10,7 +10,8 @@ Below is an Antarctic map showing test data. The map loads GeoParquet files dire
 :width: 100%
 :height: 600px
 :pole: south
-:parquetFiles: ["https://storage.googleapis.com/opr_test_dataset_1/test_antarctic_random_walk.parquet"]
+:dataPath: https://storage.googleapis.com/opr_test_dataset_1
+:parquetFiles: ["test_antarctic_random_walk.parquet"]
 :defaultZoom: 3
 :::
 

@@ -34,7 +34,11 @@ const polarMapDirective = {
     },
     parquetFiles: { 
       type: String,  // JSON string that will be parsed
-      doc: 'JSON array of parquet file URLs to load (e.g., ["url1", "url2"])'
+      doc: 'JSON array of parquet filenames (e.g., ["file1.parquet", "file2.parquet"])'
+    },
+    dataPath: {
+      type: String,
+      doc: 'Base URL path for parquet files (e.g., "https://storage.googleapis.com/bucket/")'
     },
     defaultZoom: { 
       type: Number,
@@ -44,28 +48,40 @@ const polarMapDirective = {
   run(data) {
     const { arg: src, options = {} } = data;
     
-    // Build configuration object from custom options
-    const config = {};
+    // Build URL parameters for configuration
+    const params = new URLSearchParams();
+    
     if (options.pole) {
-      config.pole = options.pole;
+      params.set('pole', options.pole);
     }
+    
+    if (options.dataPath) {
+      params.set('dataPath', options.dataPath);
+    }
+    
     if (options.parquetFiles) {
       try {
-        // Parse the JSON string to get the array
-        config.parquetFiles = JSON.parse(options.parquetFiles.replace(/'/g, '"'));
+        // Parse the JSON string to get the array of filenames
+        const files = JSON.parse(options.parquetFiles.replace(/'/g, '"'));
+        // Pass as JSON string in URL parameter
+        params.set('parquetFiles', JSON.stringify(files));
       } catch (e) {
-        console.warn('Failed to parse parquetFiles, using as string:', options.parquetFiles);
-        config.parquetFiles = [options.parquetFiles];
+        console.warn('Failed to parse parquetFiles, using as single file:', options.parquetFiles);
+        params.set('parquetFiles', JSON.stringify([options.parquetFiles]));
       }
     }
+    
     if (options.defaultZoom !== undefined) {
-      config.defaultZoom = options.defaultZoom;
+      params.set('defaultZoom', options.defaultZoom.toString());
     }
+    
+    // Combine base URL with parameters if any config exists
+    const finalSrc = params.toString() ? `${src}?${params.toString()}` : src;
     
     // Create the iframe node with standard attributes
     const iframeNode = {
       type: 'iframe',
-      src,
+      src: finalSrc,
       width: options.width || '100%',
       height: options.height || '600px',
       frameborder: '0',
@@ -82,35 +98,10 @@ const polarMapDirective = {
       iframeNode.class = options.class;
     }
     
-    // If we have config options, create a container with script injection
-    if (Object.keys(config).length > 0) {
-      // Generate a unique ID for this iframe
-      const iframeId = `polar-map-${Math.random().toString(36).substr(2, 9)}`;
-      iframeNode.id = iframeId;
-      
-      return [{
-        type: 'container',
-        kind: 'polar-map-container',
-        children: [
-          iframeNode,
-          {
-            type: 'html',
-            value: `<script>
-              (function() {
-                const iframe = document.getElementById('${iframeId}');
-                if (iframe) {
-                  iframe.onload = function() {
-                    this.contentWindow.CONFIG = ${JSON.stringify(config, null, 2)};
-                  };
-                }
-              })();
-            </script>`
-          }
-        ]
-      }];
-    }
+    // Generate a unique ID for this iframe (for potential future use)
+    iframeNode.id = `polar-map-${Math.random().toString(36).substr(2, 9)}`;
     
-    // Return just the iframe if no config
+    // Return just the iframe - no script injection needed
     return [iframeNode];
   }
 };
