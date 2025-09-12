@@ -11,7 +11,7 @@
 
 **Contributor Code of Conduct:** [![Code of Conduct](https://img.shields.io/badge/Contributor%20Covenant-v2.0%20adopted-ff69b4.svg)](CODE_OF_CONDUCT.md)
 
-xopr is a Python library designed to make accessing [Open Polar Radar's](https://ops.cresis.ku.edu/) data archives easy, scalable, and reproducible.
+xopr is a Python library designed to make accessing [Open Polar Radar's](https://ops.cresis.ku.edu/) data archives easy, scalable, and reproducible; see [here for current data availibility](https://www.thomasteisberg.com/xopr/polar-maps/) within xopr..
 
 **xopr is a work in progress! The API will almost certainly change in the future, so please proceed with caution.**
 
