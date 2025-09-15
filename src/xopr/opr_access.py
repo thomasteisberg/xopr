@@ -216,7 +216,7 @@ class OPRConnection:
                     data_product: str = "CSARP_standard",
                     merge_flights: bool = False,
                     skip_errors: bool = False,
-                    ) -> list[xr.Dataset]:
+                    ) -> Union[list[xr.Dataset], xr.Dataset]:
         """
         Load multiple radar frames from a list of STAC items.
 
@@ -233,8 +233,8 @@ class OPRConnection:
 
         Returns
         -------
-        list[xr.Dataset]
-            List of loaded radar frames as xarray Datasets.
+        list[xr.Dataset] or xr.Dataset
+            List of loaded radar frames as xarray Datasets or a single merged Dataset if there is only one segment and merge_flights is True.
         """
         frames = []
 
@@ -250,7 +250,7 @@ class OPRConnection:
                     raise e
 
         if merge_flights:
-            return self.merge_flights_from_frames(frames)
+            return xopr.merge_flights_from_frames(frames)
         else:
             return frames
 
