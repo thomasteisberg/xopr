@@ -1,10 +1,11 @@
 import xarray as xr
 
-from typing import Iterable
+from typing import Iterable, Union
+import warnings
 
 from xopr.util import merge_dicts_no_conflicts
 
-def merge_frames(frames: Iterable[xr.Dataset]) -> list[xr.Dataset]:
+def merge_frames(frames: Iterable[xr.Dataset]) -> Union[list[xr.Dataset], xr.Dataset]:
     """
     Merge a set of radar frames into a list of merged xarray Datasets. Frames from the
     same segment (typically a flight) are concatenated along the 'slow_time' dimension.
@@ -16,8 +17,8 @@ def merge_frames(frames: Iterable[xr.Dataset]) -> list[xr.Dataset]:
 
     Returns
     -------
-    list[xr.Dataset]
-        List of merged xarray Datasets.
+    list[xr.Dataset] or xr.Dataset
+        List of merged xarray Datasets or a single merged Dataset if there is only one segment.
     """
     segments = {}
 
@@ -49,4 +50,7 @@ def merge_frames(frames: Iterable[xr.Dataset]) -> list[xr.Dataset]:
 
         merged_segments.append(merged_segment)
 
-    return merged_segments
+    if len(merged_segments) == 1:
+        return merged_segments[0]
+    else:
+        return merged_segments
