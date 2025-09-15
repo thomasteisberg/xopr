@@ -20,9 +20,10 @@ dependencies = [
     "shapely",
     "geopandas",
     "h5py",
-    "pystac_client",
     "fsspec",
-    "dask[distributed]"
+    "dask[distributed]",
+    "rustac>=0.6.0",
+    "antimeridian>=0.4.3",
 ]
 
 [project.optional-dependencies]
