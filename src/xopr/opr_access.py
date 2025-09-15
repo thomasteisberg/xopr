@@ -55,7 +55,7 @@ class OPRConnection:
             }
             self.fsspec_url_prefix = 'filecache::'
 
-    def query_frames(self, seasons: list[str] = None, segment_paths: list[str] = None,
+    def query_frames(self, collections: list[str] = None, segment_paths: list[str] = None,
                      geometry = None, date_range: tuple = None, properties: dict = {},
                      max_items: int = None, exclude_geometry: bool = False,
                      search_kwargs: dict = {}) -> gpd.GeoDataFrame:
@@ -69,8 +69,8 @@ class OPRConnection:
 
         Parameters
         ----------
-        seasons : list[str], optional
-            List of season names to filter by (e.g., "2022_Antarctica_BaslerMKB").
+        collections : list[str], optional
+            List of collection names to filter by (e.g., "2022_Antarctica_BaslerMKB").
         segment_paths : list[str], optional
             List of segment paths to filter by (e.g., "20230126_01").
         geometry : optional
@@ -99,22 +99,27 @@ class OPRConnection:
             search_params['exclude'] = ['geometry']
         
         # Handle collections (seasons)
-        if seasons is not None:
-            if isinstance(seasons, str):
-                seasons = [seasons]
-            search_params['collections'] = seasons
-        
+        if collections is not None:
+            if isinstance(collections, str):
+                collections = [collections]
+            search_params['collections'] = collections
+
         # Handle geometry filtering
         if geometry is not None:
-            search_params['intersects'] = geometry
-        
+            if hasattr(geometry, '__geo_interface__'):
+                search_params['intersects'] = geometry.__geo_interface__
+            else:
+                search_params['intersects'] = geometry
+
         # Handle date range filtering
         if date_range is not None:
             search_params['datetime'] = date_range
 
         # Handle max_items
         if max_items is not None:
-            search_params['max_items'] = max_items
+            search_params['limit'] = max_items
+        else:
+            search_params['limit'] = 1000000
 
         # Handle segment_paths filtering using CQL2
         filter_conditions = []
@@ -195,6 +200,7 @@ class OPRConnection:
         items_df = gpd.GeoDataFrame(items)
         # Set index
         items_df = items_df.set_index(items_df['id'])
+        items_df.index.name = 'stac_item_id'
         # Set the geometry column
         if 'geometry' in items_df.columns and not exclude_geometry:
             items_df = items_df.set_geometry(items_df['geometry'].apply(shapely.geometry.shape))
@@ -491,7 +497,7 @@ class OPRConnection:
             List of flight dictionaries with flight metadata.
         """
         # Query STAC API for all items in collection (exclude geometry for better performance)
-        items = self.query_frames(seasons=[collection_id], exclude_geometry=True)
+        items = self.query_frames(collections=[collection_id], exclude_geometry=True)
         
         if items is None or len(items) == 0:
             print(f"No items found in collection '{collection_id}'")
@@ -557,7 +563,7 @@ class OPRConnection:
         # Query STAC collection for CSARP_layer files matching this specific segment
 
         # Get items from this specific segment
-        stac_items = self.query_frames(seasons=[collection], segment_paths=[segment_path], properties=properties)
+        stac_items = self.query_frames(collections=[collection], segment_paths=[segment_path], properties=properties)
 
         # Filter for items that have CSARP_layer assets
         layer_items = []
