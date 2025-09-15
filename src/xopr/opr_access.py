@@ -11,14 +11,13 @@ import scipy.io
 import geopandas as gpd
 import shapely
 import h5py
-#import rustac
-#import asyncio
 from rustac import DuckdbClient
 
 from .cf_units import apply_cf_compliant_attrs
 from .matlab_attribute_utils import decode_hdf5_matlab_variable, extract_legacy_mat_attributes
 from .util import merge_dicts_no_conflicts
 from . import ops_api
+from . import opr_tools
 
 # import nest_asyncio
 # nest_asyncio.apply()
@@ -250,7 +249,7 @@ class OPRConnection:
                     raise e
 
         if merge_flights:
-            return xopr.merge_flights_from_frames(frames)
+            return opr_tools.merge_flights_from_frames(frames)
         else:
             return frames
 
