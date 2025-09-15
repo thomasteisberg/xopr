@@ -12,7 +12,8 @@ class XoprAccessor:
     def _repr_html_(self):
         return dataset_repr(self._obj)
     
-    def generate_citation(self) -> str:
+    @property
+    def citation(self) -> str:
         """
         Generate a citation string for the dataset based on its attributes.
 
