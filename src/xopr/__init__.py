@@ -34,6 +34,7 @@ except ImportError:
     __version__ = "unknown"
 
 from .opr_access import OPRConnection
+from .opr_tools import merge_frames
 
 # Temporary fix to provide a nicer _repr_html_ for nested attributes dictionaries
 from .xarray_repr_fix.xopr_accessor import XoprAccessor
