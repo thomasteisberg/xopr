@@ -13,8 +13,8 @@ test_flights = [
     ('2016_Antarctica_DC8', '20161117_06'),
 ]
 
-@pytest.mark.parametrize("season,flight_id", test_flights)
-def test_merge_flights_from_frames(season, flight_id):
+@pytest.mark.parametrize("collection,segment_path", test_flights)
+def test_merge_flights_from_frames(collection, segment_path):
     """
     Test that merge_flights_from_frames correctly merges frames and maintains slow_time monotonicity.
     
@@ -25,7 +25,7 @@ def test_merge_flights_from_frames(season, flight_id):
     opr = xopr.OPRConnection()
     
     # Query and load frames
-    stac_items = opr.query_frames(seasons=[season], flight_ids=[flight_id])
+    stac_items = opr.query_frames(collections=[collection], segment_paths=[segment_path])
 
     # Load only the first two frames for testing
     frames = opr.load_frames(stac_items[:2])
@@ -34,7 +34,7 @@ def test_merge_flights_from_frames(season, flight_id):
     assert len(frames) >= 2, f"Expected at least 2 frames, got {len(frames)}"
     
     # Test merge_flights_from_frames
-    merged_flights = opr.merge_flights_from_frames(frames)
+    merged_flights = xopr.merge_frames(frames)
     
     # Should return a list with one merged flight
     assert isinstance(merged_flights, list), "merge_flights_from_frames should return a list"
@@ -57,12 +57,12 @@ def test_merge_flights_from_frames(season, flight_id):
     assert np.all(time_diffs > 0), "slow_time values should be monotonically increasing"
     
     # Verify that the merged flight has the expected attributes
-    assert 'segment' in merged_flight.attrs, "Merged flight should have segment attribute"
-    assert merged_flight.attrs['segment'] == flight_id, f"Segment should be {flight_id}"
+    assert 'segment_path' in merged_flight.attrs, "Merged flight should have segment_path attribute"
+    assert merged_flight.attrs['segment_path'] == segment_path, f"Segment path should be {segment_path}"
 
 
-@pytest.mark.parametrize("season,flight_id", test_flights)
-def test_param_records_equivalence_qlook_vs_standard(season, flight_id):
+@pytest.mark.parametrize("collection,segment_path", test_flights)
+def test_param_records_equivalence_qlook_vs_standard(collection, segment_path):
     """
     Test that specific parameters in CSARP_qlook and CSARP_standard data products are equivalent.
     
@@ -72,10 +72,10 @@ def test_param_records_equivalence_qlook_vs_standard(season, flight_id):
     opr = xopr.OPRConnection()
     
     # Query frames for the flight
-    stac_items = opr.query_frames(seasons=[season], flight_ids=[flight_id])
-    
+    stac_items = opr.query_frames(collections=[collection], segment_paths=[segment_path])
+
     # Load the first frame with both data products
-    first_item = stac_items[0]
+    first_item = stac_items.iloc[0]
     
     
     # Load CSARP_standard data
