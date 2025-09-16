@@ -39,5 +39,5 @@ from .radar_util import layer_twtt_to_range, interpolate_to_vertical_grid
 
 from . import geometry
 
-# Temporary fix to provide a nicer _repr_html_ for nested attributes dictionaries
-from .xarray_repr_fix.xopr_accessor import XoprAccessor
+# Import Xarray Dataset accessor
+from .xarray_accessor.xopr_accessor import XoprAccessor
