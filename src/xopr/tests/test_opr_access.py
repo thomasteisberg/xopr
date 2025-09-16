@@ -58,7 +58,10 @@ def test_load_season(collection, segment_path):
         assert len(loaded_frames) == max_frames, f"Loaded frames for {product_type} do not match expected count"
 
         merged = xopr.merge_frames(loaded_frames)
-        flight = merged[0]
+        if isinstance(merged, list):
+            flight = merged[0]
+        else:
+            flight = merged
 
         collection_name = None
         if isinstance(collection, list):
