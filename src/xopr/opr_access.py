@@ -19,9 +19,6 @@ from .util import merge_dicts_no_conflicts
 from . import ops_api
 from . import opr_tools
 
-# import nest_asyncio
-# nest_asyncio.apply()
-
 class OPRConnection:
     def __init__(self,
                  collection_url: str = "https://data.cresis.ku.edu/data/",
@@ -469,20 +466,9 @@ class OPRConnection:
         list
             List of collection dictionaries with metadata.
         """
-        collections_url = f"{self.stac_api_url}/collections"
-        
-        try:
-            response = requests.get(collections_url)
-            response.raise_for_status()
-            data = response.json()
-            return data.get('collections', [])
-            
-        except requests.exceptions.RequestException as e:
-            print(f"Error querying STAC API for collections: {e}")
-            return []
-        except json.JSONDecodeError as e:
-            print(f"Error parsing STAC API response: {e}")
-            return []
+
+        client = DuckdbClient()
+        return client.get_collections(self.stac_parquet_href)
 
     def get_segments(self, collection_id: str) -> list:
         """
@@ -829,8 +815,8 @@ class OPRConnection:
 
         Parameters
         ----------
-        flight : Union[xr.Dataset, dict, pystac.Item]
-            The flight data, which can be an xarray Dataset, a dictionary, or a STAC item.
+        flight : Union[xr.Dataset, dict]
+            The flight data, which can be an xarray Dataset or a dictionary.
         include_geometry : bool, optional
             If True, include geometry information in the returned layers.
 
