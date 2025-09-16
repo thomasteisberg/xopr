@@ -25,7 +25,7 @@ from xarray.core.options import OPTIONS, _get_boolean_with_default
 
 STATIC_FILES = (
     ("xarray.static.html", "icons-svg-inline.html"),
-    ("xopr.xarray_repr_fix", "style.css"),
+    ("xopr.xarray_accessor", "style.css"),
 )
 
 if TYPE_CHECKING:
