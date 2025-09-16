@@ -26,7 +26,6 @@ class OPRConnection:
     def __init__(self,
                  collection_url: str = "https://data.cresis.ku.edu/data/",
                  cache_dir: str = None,
-                 stac_api_url: str = "https://opr-stac-fastapi-974574526248.us-west1.run.app",
                  stac_parquet_href: str = "gs://opr_stac/catalog/**/*.parquet"):
         """
         Initialize the OPRConnection with a collection URL and optional cache directory.
@@ -42,7 +41,6 @@ class OPRConnection:
         """
         self.collection_url = collection_url
         self.cache_dir = cache_dir
-        self.stac_api_url = stac_api_url # TODO Remove
         self.stac_parquet_href = stac_parquet_href
 
         self.fsspec_cache_kwargs = {}
@@ -185,11 +183,14 @@ class OPRConnection:
         # Add any extra kwargs to search
         search_params.update(search_kwargs)
 
-        print(search_params) # TODO: Remove
+        #print(search_params) # TODO: Remove
 
         # Perform the search
+        # from rustac import DuckdbClient
         client = DuckdbClient()
-        items = client.search(self.stac_parquet_href, **search_params)['features']
+        items = client.search(self.stac_parquet_href, **search_params)
+        if isinstance(items, dict):
+            items = items['features']
 
         if not items or len(items) == 0:
             warnings.warn("No items found matching the query criteria", UserWarning)

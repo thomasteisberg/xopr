@@ -22,7 +22,7 @@ dependencies = [
     "h5py",
     "fsspec",
     "dask[distributed]",
-    "rustac>=0.6.0",
+    "rustac>=0.8.1",
     "antimeridian>=0.4.3",
 ]
 
