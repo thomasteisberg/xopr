@@ -34,13 +34,9 @@ def test_merge_flights_from_frames(collection, segment_path):
     assert len(frames) >= 2, f"Expected at least 2 frames, got {len(frames)}"
     
     # Test merge_flights_from_frames
-    merged_flights = xopr.merge_frames(frames)
-    
-    # Should return a list with one merged flight
-    assert isinstance(merged_flights, list), "merge_flights_from_frames should return a list"
-    assert len(merged_flights) == 1, f"Expected 1 merged flight, got {len(merged_flights)}"
-    
-    merged_flight = merged_flights[0]
+    merged_flight = xopr.merge_frames(frames)
+
+    assert isinstance(merged_flight, xr.Dataset), "Merged flight should be an xarray Dataset"
     
     # Verify the merged result is an xarray Dataset
     assert isinstance(merged_flight, xr.Dataset), "Merged flight should be an xarray Dataset"
