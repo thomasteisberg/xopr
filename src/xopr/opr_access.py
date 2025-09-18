@@ -326,6 +326,9 @@ class OPRConnection:
             ds.attrs['data_product'] = data_product
             ds.attrs['granule'] = granule
             ds.attrs['segment_path'] = f"{date}_{segment_id}"
+            ds.attrs['date_str'] = date
+            ds.attrs['segment'] = int(segment_id)
+            ds.attrs['frame'] = int(frame_id)
 
             # Load citation information
             result = ops_api.get_segment_metadata(segment_name=ds.attrs['segment_path'], season_name=collection)
@@ -536,7 +539,10 @@ class OPRConnection:
             # Get collection and segment information from the dataset attributes
             collection = segment.attrs.get('collection')
             segment_path = segment.attrs.get('segment_path')
-            frame = None # Could be multiple frames in the dataset
+            if 'frame' in segment.attrs:
+                frame = segment.attrs.get('frame')
+            else:
+                frame = None # Could be multiple frames in the dataset
         else:
             collection = segment['collection']
             segment_path = f"{segment['properties'].get('opr:date')}_{segment['properties'].get('opr:flight'):02d}" # TODO: Update after resolving https://github.com/thomasteisberg/xopr/issues/22
@@ -559,7 +565,7 @@ class OPRConnection:
         
         if not layer_items:
             if raise_errors:
-                raise ValueError(f"No CSARP_layer files found for segment {segment_id} in collection {collection}")
+                raise ValueError(f"No CSARP_layer files found for segment path {segment_path} in collection {collection}")
             else:
                 return {}
         
@@ -905,10 +911,10 @@ class OPRConnection:
 
         if source == 'auto':
             # Try to get layers from files first
-            layers = self.get_layers_files(ds, raise_errors=raise_errors)
-            if layers:
+            try:
+                layers = self.get_layers_files(ds, raise_errors=True)
                 return layers
-            else:
+            except:
                 # Fallback to API if no layers found in files
                 return self.get_layers_db(ds, include_geometry=include_geometry, raise_errors=raise_errors)
         elif source == 'files':
