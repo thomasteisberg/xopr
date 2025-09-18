@@ -516,14 +516,16 @@ class OPRConnection:
 
         return segment_list
 
-    def get_layers_files(self, segment: Union[xr.Dataset, dict]) -> dict:
+    def get_layers_files(self, segment: Union[xr.Dataset, dict], raise_errors=True) -> dict:
         """
         Fetch layers from the CSARP_layers files
         
         Parameters
         ----------
-        flight : Union[xr.Dataset, dict]
+        segment : Union[xr.Dataset, dict]
             The flight information, which can be an xarray Dataset or a dictionary.
+        raise_errors : bool, optional
+            If True, raise errors when layers cannot be found.
 
         Returns
         -------
@@ -556,8 +558,10 @@ class OPRConnection:
                 layer_items.append(item)
         
         if not layer_items:
-            #print(f"No CSARP_layer files found for segment {segment_id} in collection {collection}")
-            return {}
+            if raise_errors:
+                raise ValueError(f"No CSARP_layer files found for segment {segment_id} in collection {collection}")
+            else:
+                return {}
         
         # Load each layer file and combine them
         layer_frames = []
@@ -573,8 +577,10 @@ class OPRConnection:
                     continue
         
         if not layer_frames:
-            print("No layer frames could be loaded")
-            return {}
+            if raise_errors:
+                raise ValueError(f"No valid CSARP_layer files could be loaded for segment {segment_path} in collection {collection}")
+            else:
+                return {}
         
         # Concatenate all layer frames along slow_time dimension
         layers_segment = xr.concat(layer_frames, dim='slow_time', combine_attrs='drop_conflicts', data_vars='all')
@@ -805,7 +811,7 @@ class OPRConnection:
         
         return ds
 
-    def get_layers_db(self, flight: Union[xr.Dataset, dict], include_geometry=True) -> dict:
+    def get_layers_db(self, flight: Union[xr.Dataset, dict], include_geometry=True, raise_errors=True) -> dict:
         """
         Fetch layer data from the OPS API
 
@@ -845,8 +851,10 @@ class OPRConnection:
         )
 
         if layer_points['status'] != 1:
-            print(layer_points)
-            raise ValueError(f"Failed to fetch layer points. Received response with status {layer_points['status']}.")
+            if raise_errors:
+                raise ValueError(f"Failed to fetch layer points. Received response with status {layer_points['status']}.")
+            else:
+                return {}
 
         layer_ds_raw = xr.Dataset(
             {k: (['gps_time'], v) for k, v in layer_points['data'].items() if k != 'gps_time'},
@@ -873,8 +881,8 @@ class OPRConnection:
             layers[layer_id] = l
 
         return layers
-        
-    def get_layers(self, ds : xr.Dataset, source: str = 'auto', include_geometry=True) -> dict:
+
+    def get_layers(self, ds : xr.Dataset, source: str = 'auto', include_geometry=True, raise_errors=True) -> dict:
         """
         Fetch layer data for a given flight dataset, either from CSARP_layer files or the OPS Database API.
 
@@ -885,7 +893,9 @@ class OPRConnection:
         source : str, optional
             The source to fetch layers from: 'auto', 'files', or 'db' (default is 'auto').
         include_geometry : bool, optional
-            If True, include geometry information when fetching from the API.
+            If True, include geometry information when fetching from the API.\
+        raise_errors : bool, optional
+            If True, raise errors when layers cannot be found.
 
         Returns
         -------
@@ -895,15 +905,15 @@ class OPRConnection:
 
         if source == 'auto':
             # Try to get layers from files first
-            layers = self.get_layers_files(ds)
+            layers = self.get_layers_files(ds, raise_errors=raise_errors)
             if layers:
                 return layers
             else:
                 # Fallback to API if no layers found in files
-                return self.get_layers_db(ds, include_geometry=include_geometry)
+                return self.get_layers_db(ds, include_geometry=include_geometry, raise_errors=raise_errors)
         elif source == 'files':
-            return self.get_layers_files(ds)
+            return self.get_layers_files(ds, raise_errors=raise_errors)
         elif source == 'db':
-            return self.get_layers_db(ds, include_geometry=include_geometry)
+            return self.get_layers_db(ds, include_geometry=include_geometry, raise_errors=raise_errors)
         else:
             raise ValueError("Invalid source specified. Must be one of: 'auto', 'files', 'db'.")
