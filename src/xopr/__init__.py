@@ -34,7 +34,7 @@ except ImportError:
     __version__ = "unknown"
 
 from .opr_access import OPRConnection
-from .opr_tools import merge_frames
+from .opr_tools import merge_frames, find_intersections
 from .radar_util import layer_twtt_to_range, interpolate_to_vertical_grid
 
 from . import geometry

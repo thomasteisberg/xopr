@@ -11,6 +11,7 @@ import scipy.io
 import geopandas as gpd
 import shapely
 import h5py
+import antimeridian
 from rustac import DuckdbClient
 
 from .cf_units import apply_cf_compliant_attrs
@@ -99,9 +100,12 @@ class OPRConnection:
         # Handle geometry filtering
         if geometry is not None:
             if hasattr(geometry, '__geo_interface__'):
-                search_params['intersects'] = geometry.__geo_interface__
-            else:
-                search_params['intersects'] = geometry
+                geometry = geometry.__geo_interface__
+
+            # Fix geometries that cross the antimeridian
+            geometry = antimeridian.fix_geojson(geometry, reverse=True)
+
+            search_params['intersects'] = geometry
 
         # Handle date range filtering
         if date_range is not None:
