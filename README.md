@@ -13,7 +13,7 @@
 
 xopr is a Python library designed to make accessing [Open Polar Radar's](https://ops.cresis.ku.edu/) data archives easy, scalable, and reproducible; see [here for current data availibility](https://www.thomasteisberg.com/xopr/polar-maps/) within xopr..
 
-**xopr is a work in progress! The API will almost certainly change in the future, so please proceed with caution.**
+**xopr is a work in progress! The API may evolve as we continue towards a stable 1.0 release.**
 
 We welcome your feedback and contributions. If you run into problems or have ideas for how this could be better, please consider [opening an issue](https://github.com/thomasteisberg/xopr/issues/new/choose). We also welcome pull requests!
 
