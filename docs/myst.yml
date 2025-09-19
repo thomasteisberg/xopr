@@ -18,7 +18,7 @@ project:
     - title: Notebooks
       children:
         - file: notebooks/demo_notebook.ipynb
-        #- file: notebooks/search_and_scaling.ipynb
+        - file: notebooks/search_and_scaling.ipynb
         - file: notebooks/reading_params.ipynb
         - file: notebooks/crossovers.ipynb
     
