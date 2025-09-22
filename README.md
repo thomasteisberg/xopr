@@ -5,6 +5,12 @@
 [![PyPI Version](https://img.shields.io/pypi/v/xopr.svg)](https://pypi.org/project/xopr/)
 [![License](https://img.shields.io/github/license/thomasteisberg/xopr.svg)](LICENSE)
 
+**Flight Coverage:** <!--ARCTIC_BADGE-->![Arctic](https://img.shields.io/badge/Arctic-612,696%20km-00A4CC)<!--/ARCTIC_BADGE--> <!--ANTARCTIC_BADGE-->![Antarctic](https://img.shields.io/badge/Antarctic-390,478%20km-FF6B35)<!--/ANTARCTIC_BADGE-->
+
+<!--TOTAL_BADGE-->![Total](https://progress-bar.xyz/1003174/?scale=3500000&title=Total&width=200&color=babaca&prefix=&suffix=km)<!--/TOTAL_BADGE-->
+
+*Data last updated: <!--LAST_UPDATED-->2025-09-22<!--/LAST_UPDATED-->*
+
 **Documentation:** [![Jupyter Book Badge](https://jupyterbook.org/badge.svg)](https://www.thomasteisberg.com/xopr/)
 
 **Code Coverage:** [Coverage Report](https://thomasteisberg.github.io/xopr/coverage/)
@@ -24,3 +30,8 @@ Check out our [documentation](https://www.thomasteisberg.com/xopr/) to get start
 ## License
 
 This library was originally written by Thomas Teisberg and Shane Grigsby. It is open source and licensed udner the [MIT License](./LICENSE).
+
+<!-- Hidden tracking values for GitHub Action -->
+<!--ARCTIC_VALUE-->612696<!--/ARCTIC_VALUE-->
+<!--ANTARCTIC_VALUE-->390478<!--/ANTARCTIC_VALUE-->
+<!--TOTAL_VALUE-->1003174<!--/TOTAL_VALUE-->

@@ -1,0 +1,111 @@
+name: Update Flight Distance Badges
+
+on:
+  push:
+    branches: [ main ]
+  schedule:
+    # Run daily at 2 AM UTC
+    - cron: '0 2 * * *'
+  workflow_dispatch:
+
+jobs:
+  update-badges:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v3
+      with:
+        token: ${{ secrets.GITHUB_TOKEN }}
+    
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.10'
+    
+    - name: Install dependencies
+      run: |
+        pip install geopandas pyproj rustac
+        # Install any other dependencies your project needs
+    
+    - name: Calculate flight kilometers
+      id: calc
+      run: |
+        # Run the script and capture JSON output
+        OUTPUT=$(python scripts/calc_lines.py)
+        echo "raw_output=${OUTPUT}" >> $GITHUB_OUTPUT
+        
+        # Parse JSON values
+        ARCTIC=$(echo $OUTPUT | jq -r '.arctic')
+        ANTARCTIC=$(echo $OUTPUT | jq -r '.antarctic')
+        TOTAL=$(echo $OUTPUT | jq -r '.total')
+        
+        echo "arctic=${ARCTIC}" >> $GITHUB_OUTPUT
+        echo "antarctic=${ANTARCTIC}" >> $GITHUB_OUTPUT
+        echo "total=${TOTAL}" >> $GITHUB_OUTPUT
+        
+        echo "Flight distances - Arctic: ${ARCTIC} km, Antarctic: ${ANTARCTIC} km, Total: ${TOTAL} km"
+    
+    - name: Get current values from README
+      id: current
+      run: |
+        # Extract current values from README
+        CURRENT_ARCTIC=$(grep -oP '(?<=<!--ARCTIC_VALUE-->)[0-9]+(?=<!--/ARCTIC_VALUE-->)' README.md || echo "0")
+        CURRENT_ANTARCTIC=$(grep -oP '(?<=<!--ANTARCTIC_VALUE-->)[0-9]+(?=<!--/ANTARCTIC_VALUE-->)' README.md || echo "0")
+        CURRENT_TOTAL=$(grep -oP '(?<=<!--TOTAL_VALUE-->)[0-9]+(?=<!--/TOTAL_VALUE-->)' README.md || echo "0")
+        
+        echo "arctic=${CURRENT_ARCTIC}" >> $GITHUB_OUTPUT
+        echo "antarctic=${CURRENT_ANTARCTIC}" >> $GITHUB_OUTPUT
+        echo "total=${CURRENT_TOTAL}" >> $GITHUB_OUTPUT
+        
+        echo "Current values - Arctic: ${CURRENT_ARCTIC} km, Antarctic: ${CURRENT_ANTARCTIC} km, Total: ${CURRENT_TOTAL} km"
+    
+    - name: Check if update needed
+      id: check
+      run: |
+        if [[ "${{ steps.calc.outputs.arctic }}" != "${{ steps.current.outputs.arctic }}" ]] || \
+           [[ "${{ steps.calc.outputs.antarctic }}" != "${{ steps.current.outputs.antarctic }}" ]] || \
+           [[ "${{ steps.calc.outputs.total }}" != "${{ steps.current.outputs.total }}" ]]; then
+          echo "needs_update=true" >> $GITHUB_OUTPUT
+        else
+          echo "needs_update=false" >> $GITHUB_OUTPUT
+          echo "No changes detected, skipping update"
+        fi
+    
+    - name: Update README if changed
+      if: steps.check.outputs.needs_update == 'true'
+      run: |
+        ARCTIC="${{ steps.calc.outputs.arctic }}"
+        ANTARCTIC="${{ steps.calc.outputs.antarctic }}"
+        TOTAL="${{ steps.calc.outputs.total }}"
+        
+        # Get current date (YYYY-MM-DD format)
+        # This only runs when km values have changed, so date updates only with actual data changes
+        CURRENT_DATE=$(date +%Y-%m-%d)
+        
+        # Format numbers with commas for display in shields.io badges
+        ARCTIC_FMT=$(printf "%'d" $ARCTIC)
+        ANTARCTIC_FMT=$(printf "%'d" $ANTARCTIC)
+        
+        # Update Arctic badge and value
+        sed -i "s|<!--ARCTIC_BADGE-->.*<!--/ARCTIC_BADGE-->|<!--ARCTIC_BADGE-->![Arctic](https://img.shields.io/badge/Arctic-${ARCTIC_FMT}%20km-00A4CC)<!--/ARCTIC_BADGE-->|g" README.md
+        sed -i "s|<!--ARCTIC_VALUE-->.*<!--/ARCTIC_VALUE-->|<!--ARCTIC_VALUE-->${ARCTIC}<!--/ARCTIC_VALUE-->|g" README.md
+        
+        # Update Antarctic badge and value
+        sed -i "s|<!--ANTARCTIC_BADGE-->.*<!--/ANTARCTIC_BADGE-->|<!--ANTARCTIC_BADGE-->![Antarctic](https://img.shields.io/badge/Antarctic-${ANTARCTIC_FMT}%20km-FF6B35)<!--/ANTARCTIC_BADGE-->|g" README.md
+        sed -i "s|<!--ANTARCTIC_VALUE-->.*<!--/ANTARCTIC_VALUE-->|<!--ANTARCTIC_VALUE-->${ANTARCTIC}<!--/ANTARCTIC_VALUE-->|g" README.md
+        
+        # Update Total progress bar badge (using progress-bar.xyz)
+        sed -i "s|<!--TOTAL_BADGE-->.*<!--/TOTAL_BADGE-->|<!--TOTAL_BADGE-->![Total](https://progress-bar.xyz/${TOTAL}/?scale=3500000\&title=Total\&width=200\&color=babaca\&prefix=\&suffix=km)<!--/TOTAL_BADGE-->|g" README.md
+        sed -i "s|<!--TOTAL_VALUE-->.*<!--/TOTAL_VALUE-->|<!--TOTAL_VALUE-->${TOTAL}<!--/TOTAL_VALUE-->|g" README.md
+        
+        # Update last updated date - only updates when km values change
+        sed -i "s|<!--LAST_UPDATED-->.*<!--/LAST_UPDATED-->|<!--LAST_UPDATED-->${CURRENT_DATE}<!--/LAST_UPDATED-->|g" README.md
+    
+    - name: Commit and push if changed
+      if: steps.check.outputs.needs_update == 'true'
+      run: |
+        git config --global user.name 'github-actions[bot]'
+        git config --global user.email 'github-actions[bot]@users.noreply.github.com'
+        git add README.md
+        git commit -m "Update flight distances: ${{ steps.current.outputs.total }} km → ${{ steps.calc.outputs.total }} km"
+        git push
