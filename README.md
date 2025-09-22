@@ -9,6 +9,8 @@
 
 <!--TOTAL_BADGE-->![Total](https://progress-bar.xyz/29/?scale=100&title=Total&width=200&color=babaca&suffix=%25)<!--/TOTAL_BADGE-->
 
+[![Total](https://progress-bar.xyz/29/?scale=100&title=Total&width=200&color=babaca&suffix=%25)](Total)
+
 *Data last updated: <!--LAST_UPDATED-->2025-09-22<!--/LAST_UPDATED-->*
 
 **Documentation:** [![Jupyter Book Badge](https://jupyterbook.org/badge.svg)](https://www.thomasteisberg.com/xopr/)
