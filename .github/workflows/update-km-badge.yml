@@ -24,7 +24,7 @@ jobs:
     
     - name: Install dependencies
       run: |
-        pip install geopandas pyproj rustac
+        pip install geopandas pyproj arro3 rustac
         # Install any other dependencies your project needs
     
     - name: Calculate flight kilometers
@@ -95,7 +95,7 @@ jobs:
         sed -i "s|<!--ANTARCTIC_VALUE-->.*<!--/ANTARCTIC_VALUE-->|<!--ANTARCTIC_VALUE-->${ANTARCTIC}<!--/ANTARCTIC_VALUE-->|g" README.md
         
         # Update Total progress bar badge (using progress-bar.xyz)
-        sed -i "s|<!--TOTAL_BADGE-->.*<!--/TOTAL_BADGE-->|<!--TOTAL_BADGE-->![Total](https://progress-bar.xyz/${TOTAL}/?scale=3500000\&title=Total\&width=200\&color=babaca\&prefix=\&suffix=km)<!--/TOTAL_BADGE-->|g" README.md
+        sed -i "s|<!--TOTAL_BADGE-->.*<!--/TOTAL_BADGE-->|<!--TOTAL_BADGE-->![Total](https://progress-bar.xyz/${TOTAL}?scale=3500000\&title=Total\&width=200\&color=babaca\&suffix=km)<!--/TOTAL_BADGE-->|g" README.md
         sed -i "s|<!--TOTAL_VALUE-->.*<!--/TOTAL_VALUE-->|<!--TOTAL_VALUE-->${TOTAL}<!--/TOTAL_VALUE-->|g" README.md
         
         # Update last updated date - only updates when km values change

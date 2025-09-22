@@ -7,7 +7,7 @@
 
 **Flight Coverage:** <!--ARCTIC_BADGE-->![Arctic](https://img.shields.io/badge/Arctic-612,696%20km-00A4CC)<!--/ARCTIC_BADGE--> <!--ANTARCTIC_BADGE-->![Antarctic](https://img.shields.io/badge/Antarctic-390,478%20km-FF6B35)<!--/ANTARCTIC_BADGE-->
 
-<!--TOTAL_BADGE-->![Total](https://progress-bar.xyz/1003174/?scale=3500000&title=Total&width=200&color=babaca&prefix=&suffix=km)<!--/TOTAL_BADGE-->
+<!--TOTAL_BADGE-->![Total](https://progress-bar.xyz/1003174?scale=3500000&title=Total&width=200&color=babaca&suffix=km)<!--/TOTAL_BADGE-->
 
 *Data last updated: <!--LAST_UPDATED-->2025-09-22<!--/LAST_UPDATED-->*
 
