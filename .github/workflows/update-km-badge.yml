@@ -94,8 +94,12 @@ jobs:
         sed -i "s|<!--ANTARCTIC_BADGE-->.*<!--/ANTARCTIC_BADGE-->|<!--ANTARCTIC_BADGE-->![Antarctic](https://img.shields.io/badge/Antarctic-${ANTARCTIC_FMT}%20km-FF6B35)<!--/ANTARCTIC_BADGE-->|g" README.md
         sed -i "s|<!--ANTARCTIC_VALUE-->.*<!--/ANTARCTIC_VALUE-->|<!--ANTARCTIC_VALUE-->${ANTARCTIC}<!--/ANTARCTIC_VALUE-->|g" README.md
         
-        # Update Total progress bar badge (using progress-bar.xyz)
-        sed -i "s|<!--TOTAL_BADGE-->.*<!--/TOTAL_BADGE-->|<!--TOTAL_BADGE-->![Total](https://progress-bar.xyz/${TOTAL}?scale=3500000\&title=Total\&width=200\&color=babaca\&suffix=km)<!--/TOTAL_BADGE-->|g" README.md
+        # Calculate percentage for progress bar (total / 3,500,000 * 100)
+        PERCENTAGE=$(echo "scale=0; ${TOTAL} * 100 / 3500000" | bc)
+        
+        # Update Total progress bar badge (multi-line replacement)
+        # Use perl for multi-line regex replacement
+        perl -i -0pe "s|<!--TOTAL_BADGE-->.*?<!--/TOTAL_BADGE-->|<!--TOTAL_BADGE-->\n![Total Data Ingest](https://progress-bar.xyz/${PERCENTAGE}/?scale=100&title=Total%20Data%20Ingest&width=200&color=babaca&suffix=%25)\n<!--/TOTAL_BADGE-->|s" README.md
         sed -i "s|<!--TOTAL_VALUE-->.*<!--/TOTAL_VALUE-->|<!--TOTAL_VALUE-->${TOTAL}<!--/TOTAL_VALUE-->|g" README.md
         
         # Update last updated date - only updates when km values change
