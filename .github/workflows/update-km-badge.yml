@@ -24,7 +24,7 @@ jobs:
     
     - name: Install dependencies
       run: |
-        pip install geopandas pyproj arro3 rustac
+        pip install geopandas pyproj pyarrow arro3-core rustac
         # Install any other dependencies your project needs
     
     - name: Calculate flight kilometers
