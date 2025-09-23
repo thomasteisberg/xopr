@@ -13,6 +13,8 @@
 
 *Data last updated: <!--LAST_UPDATED-->2025-09-22<!--/LAST_UPDATED-->*
 
+**Try our code in binder:** [![Binder](https://mybinder.org/badge_logo.svg)](https://mybinder.org/v2/gh/thomasteisberg/xopr/HEAD?urlpath=lab/tree/docs/notebooks)
+
 **Documentation:** [![Jupyter Book Badge](https://jupyterbook.org/badge.svg)](https://www.thomasteisberg.com/xopr/)
 
 **Code Coverage:** [Coverage Report](https://thomasteisberg.github.io/xopr/coverage/)

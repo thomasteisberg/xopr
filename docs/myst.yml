@@ -29,9 +29,7 @@ site:
     static_dir: _static
   #   favicon: favicon.ico
   #   logo: site_logo.png
-  launch_buttons:
-    binderhub:
-      url: https://mybinder.org
-      repo: thomasteisberg/xopr
-      ref: main  # or specify a branch/tag
-
+  # Site actions don't support dynamic variables like {file}
+  actions:
+    - title: Launch on Binder
+      url: https://mybinder.org/v2/gh/thomasteisberg/xopr/HEAD?urlpath=lab/tree/docs/notebooks
