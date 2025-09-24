@@ -25,6 +25,7 @@ project:
 site:
   template: book-theme
   options:
+    analytics_plausible: thomasteisberg.com/xopr  # Your domain
     logo_text: xopr Documentation
     static_dir: _static
   #   favicon: favicon.ico
