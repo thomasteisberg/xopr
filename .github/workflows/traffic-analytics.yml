@@ -68,7 +68,7 @@ jobs:
 
       - name: Download existing data from GCS
         env:
-          GCS_BUCKET: ${{ secrets.GCS_BUCKET_NAME }}
+          GCS_BUCKET: ${{ vars.GCS_BUCKET_NAME }}
         run: |
           echo "📥 Downloading existing data from GCS..."
           
@@ -198,7 +198,7 @@ jobs:
 
       - name: Upload data to Google Cloud Storage
         env:
-          GCS_BUCKET: ${{ secrets.GCS_BUCKET_NAME }}
+          GCS_BUCKET: ${{ vars.GCS_BUCKET_NAME }}
         run: |
           DATE=$(date +%Y-%m-%d)
           echo "☁️ Uploading data to Google Cloud Storage..."
@@ -222,14 +222,13 @@ jobs:
           echo "✅ Data uploaded successfully to gs://${GCS_BUCKET}/traffic-data/"
           echo "📊 Parquet size: $(du -h /tmp/traffic-data/traffic_history.parquet | cut -f1)"
 
-      - name: Set bucket permissions (optional - make public)
+      - name: Verify upload completion
         env:
-          GCS_BUCKET: ${{ secrets.GCS_BUCKET_NAME }}
+          GCS_BUCKET: ${{ vars.GCS_BUCKET_NAME }}
         run: |
-          # Uncomment below to make charts publicly accessible
-          # gsutil -m acl ch -u AllUsers:R "gs://${GCS_BUCKET}/traffic-data/charts/*.png"
-          # gsutil -m acl ch -u AllUsers:R "gs://${GCS_BUCKET}/traffic-data/REPORT.md"
-          echo "ℹ️ Bucket permissions unchanged (private by default)"
+          echo "✅ Data uploaded to public bucket"
+          echo "📊 View charts at: https://storage.googleapis.com/${GCS_BUCKET}/traffic-data/charts/"
+          echo "📄 View report at: https://storage.googleapis.com/${GCS_BUCKET}/traffic-data/REPORT.md"
 
       - name: Generate Slack weekly report
         if: |
@@ -244,7 +243,7 @@ jobs:
           python .github/scripts/generate_slack_report.py /tmp/traffic-data
 
       - name: Upload artifacts for debugging
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         if: failure()
         with:
           name: traffic-data-debug-${{ github.run_number }}
