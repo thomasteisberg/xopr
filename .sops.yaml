@@ -1,0 +1,10 @@
+# SOPS configuration for encrypting secrets using age
+# This file configures how SOPS encrypts/decrypts files in this repository
+
+creation_rules:
+  # Rule for encrypting Google Cloud credentials and other secrets
+  - path_regex: \.enc\.(json|yaml|env)$
+    age: age1chg8hcjuq4fecp95k05kp5z7w8t3pgj9v5vy53584mzm3rthjc6qnf69q5  # Replace with your public key
+    # To generate: age-keygen -o key.txt
+    # The public key will be shown (age1...), add it above
+    # Store the private key (AGE-SECRET-KEY-1...) in GitHub Secrets as SOPS_AGE_KEY

@@ -1,0 +1,252 @@
+name: Collect Traffic Analytics
+on:
+  schedule:
+    # Run daily at 2 AM UTC for data collection
+    - cron: '0 2 * * *'
+    # Run weekly report on Mondays at 9 AM UTC
+    - cron: '0 9 * * 1'
+  workflow_dispatch:  # Allow manual trigger
+    inputs:
+      days_back:
+        description: 'Number of days to look back (max 14)'
+        required: false
+        default: '14'
+      send_slack_report:
+        description: 'Send Slack report immediately'
+        required: false
+        type: boolean
+        default: false
+
+jobs:
+  collect-traffic:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          pip install google-cloud-storage matplotlib pandas seaborn pyarrow
+
+      - name: Setup SOPS and decrypt credentials
+        env:
+          SOPS_AGE_KEY: ${{ secrets.SOPS_AGE_KEY }}
+        run: |
+          # Install SOPS
+          curl -LO https://github.com/mozilla/sops/releases/download/v3.8.1/sops-v3.8.1.linux.amd64
+          chmod +x sops-v3.8.1.linux.amd64
+          sudo mv sops-v3.8.1.linux.amd64 /usr/local/bin/sops
+          
+          # Decrypt GCS credentials
+          sops -d .github/encrypted/gcs-credentials.enc.json > /tmp/gcs-key.json
+          
+          # Set up authentication
+          echo "GOOGLE_APPLICATION_CREDENTIALS=/tmp/gcs-key.json" >> $GITHUB_ENV
+
+      - name: Setup Google Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+        with:
+          skip_install: false
+
+      - name: Authenticate to Google Cloud
+        run: |
+          gcloud auth activate-service-account --key-file=/tmp/gcs-key.json
+          # Extract project ID from service account file
+          PROJECT_ID=$(jq -r .project_id /tmp/gcs-key.json)
+          gcloud config set project $PROJECT_ID
+
+      - name: Create temporary data directories
+        run: |
+          mkdir -p /tmp/traffic-data/raw
+          mkdir -p /tmp/traffic-data/processed
+          mkdir -p /tmp/traffic-data/charts
+
+      - name: Download existing data from GCS
+        env:
+          GCS_BUCKET: ${{ secrets.GCS_BUCKET_NAME }}
+        run: |
+          echo "📥 Downloading existing data from GCS..."
+          
+          # Download historical parquet data if it exists
+          gsutil cp "gs://${GCS_BUCKET}/traffic-data/traffic_history.parquet" \
+            /tmp/traffic-data/ 2>/dev/null || echo "No existing historical data found"
+          
+          # Download metadata
+          gsutil cp "gs://${GCS_BUCKET}/traffic-data/metadata.json" \
+            /tmp/traffic-data/ 2>/dev/null || echo "No metadata found"
+
+      - name: Fetch clone statistics
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          DATE=$(date +%Y-%m-%d)
+          TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+          
+          echo "📊 Fetching clone statistics..."
+          
+          # Fetch clone data
+          CLONES_DATA=$(curl -s -H "Authorization: token ${GITHUB_TOKEN}" \
+            "https://api.github.com/repos/${{ github.repository }}/traffic/clones")
+          
+          # Check if request was successful
+          if echo "${CLONES_DATA}" | grep -q '"clones"'; then
+            # Add metadata to the response
+            echo "${CLONES_DATA}" | jq --arg ts "${TIMESTAMP}" --arg repo "${{ github.repository }}" \
+              '. + {fetched_at: $ts, repository: $repo}' \
+              > /tmp/traffic-data/raw/clones-${DATE}.json
+            echo "✅ Clone data saved"
+          else
+            echo "⚠️ Failed to fetch clone data"
+            echo "${CLONES_DATA}"
+          fi
+
+      - name: Fetch pageview statistics
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          DATE=$(date +%Y-%m-%d)
+          TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+          
+          echo "📊 Fetching pageview statistics..."
+          
+          # Fetch views data
+          VIEWS_DATA=$(curl -s -H "Authorization: token ${GITHUB_TOKEN}" \
+            "https://api.github.com/repos/${{ github.repository }}/traffic/views")
+          
+          # Check if request was successful
+          if echo "${VIEWS_DATA}" | grep -q '"views"'; then
+            # Add metadata to the response
+            echo "${VIEWS_DATA}" | jq --arg ts "${TIMESTAMP}" --arg repo "${{ github.repository }}" \
+              '. + {fetched_at: $ts, repository: $repo}' \
+              > /tmp/traffic-data/raw/views-${DATE}.json
+            echo "✅ Pageview data saved"
+          else
+            echo "⚠️ Failed to fetch pageview data"
+            echo "${VIEWS_DATA}"
+          fi
+
+      - name: Fetch popular paths
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          DATE=$(date +%Y-%m-%d)
+          TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+          
+          echo "📊 Fetching popular paths..."
+          
+          # Fetch popular paths data
+          PATHS_DATA=$(curl -s -H "Authorization: token ${GITHUB_TOKEN}" \
+            "https://api.github.com/repos/${{ github.repository }}/traffic/popular/paths")
+          
+          # Save if successful (this returns an array)
+          if echo "${PATHS_DATA}" | jq -e '. | type == "array"' > /dev/null 2>&1; then
+            echo "${PATHS_DATA}" | jq --arg ts "${TIMESTAMP}" --arg repo "${{ github.repository }}" \
+              '{fetched_at: $ts, repository: $repo, paths: .}' \
+              > /tmp/traffic-data/raw/paths-${DATE}.json
+            echo "✅ Popular paths data saved"
+          else
+            echo "⚠️ Failed to fetch popular paths"
+            echo "${PATHS_DATA}"
+          fi
+
+      - name: Fetch referrers
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          DATE=$(date +%Y-%m-%d)
+          TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+          
+          echo "📊 Fetching referrer statistics..."
+          
+          # Fetch referrer data
+          REFERRERS_DATA=$(curl -s -H "Authorization: token ${GITHUB_TOKEN}" \
+            "https://api.github.com/repos/${{ github.repository }}/traffic/popular/referrers")
+          
+          # Save if successful (this returns an array)
+          if echo "${REFERRERS_DATA}" | jq -e '. | type == "array"' > /dev/null 2>&1; then
+            echo "${REFERRERS_DATA}" | jq --arg ts "${TIMESTAMP}" --arg repo "${{ github.repository }}" \
+              '{fetched_at: $ts, repository: $repo, referrers: .}' \
+              > /tmp/traffic-data/raw/referrers-${DATE}.json
+            echo "✅ Referrer data saved"
+          else
+            echo "⚠️ Failed to fetch referrer data"
+            echo "${REFERRERS_DATA}"
+          fi
+
+      - name: Process and aggregate data
+        run: |
+          echo "🔄 Processing collected data into Parquet..."
+          python .github/scripts/process_traffic.py /tmp/traffic-data/raw /tmp/traffic-data
+
+      - name: Generate markdown report
+        run: |
+          echo "📝 Generating markdown report..."
+          python .github/scripts/generate_report.py /tmp/traffic-data
+
+      - name: Generate visualizations
+        run: |
+          echo "📊 Generating visualizations..."
+          python .github/scripts/visualize_traffic.py \
+            --data-dir /tmp/traffic-data \
+            --output-dir /tmp/traffic-data/charts \
+            --no-show
+
+      - name: Upload data to Google Cloud Storage
+        env:
+          GCS_BUCKET: ${{ secrets.GCS_BUCKET_NAME }}
+        run: |
+          DATE=$(date +%Y-%m-%d)
+          echo "☁️ Uploading data to Google Cloud Storage..."
+          
+          # Upload Parquet file
+          gsutil cp /tmp/traffic-data/traffic_history.parquet "gs://${GCS_BUCKET}/traffic-data/"
+          
+          # Upload metadata
+          gsutil cp /tmp/traffic-data/metadata.json "gs://${GCS_BUCKET}/traffic-data/"
+          
+          # Upload report
+          gsutil cp /tmp/traffic-data/REPORT.md "gs://${GCS_BUCKET}/traffic-data/"
+          
+          # Upload charts
+          gsutil -m cp /tmp/traffic-data/charts/*.png "gs://${GCS_BUCKET}/traffic-data/charts/"
+          
+          # Archive today's raw data for debugging (optional)
+          tar czf /tmp/traffic-data/raw_backup_${DATE}.tar.gz /tmp/traffic-data/raw/
+          gsutil cp /tmp/traffic-data/raw_backup_${DATE}.tar.gz "gs://${GCS_BUCKET}/traffic-data/backups/"
+          
+          echo "✅ Data uploaded successfully to gs://${GCS_BUCKET}/traffic-data/"
+          echo "📊 Parquet size: $(du -h /tmp/traffic-data/traffic_history.parquet | cut -f1)"
+
+      - name: Set bucket permissions (optional - make public)
+        env:
+          GCS_BUCKET: ${{ secrets.GCS_BUCKET_NAME }}
+        run: |
+          # Uncomment below to make charts publicly accessible
+          # gsutil -m acl ch -u AllUsers:R "gs://${GCS_BUCKET}/traffic-data/charts/*.png"
+          # gsutil -m acl ch -u AllUsers:R "gs://${GCS_BUCKET}/traffic-data/REPORT.md"
+          echo "ℹ️ Bucket permissions unchanged (private by default)"
+
+      - name: Generate Slack weekly report
+        if: |
+          (github.event.schedule == '0 9 * * 1' || 
+           github.event.inputs.send_slack_report == 'true') &&
+          env.SLACK_WEBHOOK_URL != ''
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        run: |
+          echo "📊 Generating weekly Slack report..."
+          python .github/scripts/generate_slack_report.py /tmp/traffic-data
+
+      - name: Upload artifacts for debugging
+        uses: actions/upload-artifact@v3
+        if: failure()
+        with:
+          name: traffic-data-debug-${{ github.run_number }}
+          path: /tmp/traffic-data/
+          retention-days: 7
