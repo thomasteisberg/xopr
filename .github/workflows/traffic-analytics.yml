@@ -56,9 +56,7 @@ jobs:
       - name: Authenticate to Google Cloud
         run: |
           gcloud auth activate-service-account --key-file=/tmp/gcs-key.json
-          # Extract project ID from service account file
-          PROJECT_ID=$(jq -r .project_id /tmp/gcs-key.json)
-          gcloud config set project $PROJECT_ID
+          # Project is already set in service account, no need to configure
 
       - name: Create temporary data directories
         run: |
@@ -82,7 +80,7 @@ jobs:
 
       - name: Fetch clone statistics
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GH_PAT || secrets.GITHUB_TOKEN }}
         run: |
           DATE=$(date +%Y-%m-%d)
           TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
@@ -107,7 +105,7 @@ jobs:
 
       - name: Fetch pageview statistics
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GH_PAT || secrets.GITHUB_TOKEN }}
         run: |
           DATE=$(date +%Y-%m-%d)
           TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
@@ -132,7 +130,7 @@ jobs:
 
       - name: Fetch popular paths
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GH_PAT || secrets.GITHUB_TOKEN }}
         run: |
           DATE=$(date +%Y-%m-%d)
           TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
@@ -156,7 +154,7 @@ jobs:
 
       - name: Fetch referrers
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GH_PAT || secrets.GITHUB_TOKEN }}
         run: |
           DATE=$(date +%Y-%m-%d)
           TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
