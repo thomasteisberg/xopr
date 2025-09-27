@@ -1,10 +1,10 @@
 name: Collect Traffic Analytics
 on:
   schedule:
-    # Run daily at 2 AM UTC for data collection
-    - cron: '0 2 * * *'
-    # Run weekly report on Mondays at 9 AM UTC
-    - cron: '0 9 * * 1'
+    # Run weekly on Mondays at 2 AM UTC (captures full 14-day history)
+    - cron: '0 2 * * 1'
+    # Optional: Run daily if you prefer more frequent updates
+    # - cron: '0 2 * * *'
   workflow_dispatch:  # Allow manual trigger
     inputs:
       days_back:
@@ -179,7 +179,12 @@ jobs:
       - name: Process and aggregate data
         run: |
           echo "🔄 Processing collected data into Parquet..."
-          python .github/scripts/process_traffic.py /tmp/traffic-data/raw /tmp/traffic-data
+          # Use improved script that handles all 14 days of data
+          if [ -f .github/scripts/process_traffic_improved.py ]; then
+            python .github/scripts/process_traffic_improved.py /tmp/traffic-data/raw /tmp/traffic-data
+          else
+            python .github/scripts/process_traffic.py /tmp/traffic-data/raw /tmp/traffic-data
+          fi
 
       - name: Generate markdown report
         run: |
@@ -230,7 +235,7 @@ jobs:
 
       - name: Generate Slack weekly report
         if: |
-          (github.event.schedule == '0 9 * * 1' || 
+          (github.event_name == 'schedule' || 
            github.event.inputs.send_slack_report == 'true') &&
           env.SLACK_WEBHOOK_URL != ''
         env:
