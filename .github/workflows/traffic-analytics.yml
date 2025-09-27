@@ -179,12 +179,7 @@ jobs:
       - name: Process and aggregate data
         run: |
           echo "🔄 Processing collected data into Parquet..."
-          # Use improved script that handles all 14 days of data
-          if [ -f .github/scripts/process_traffic_improved.py ]; then
-            python .github/scripts/process_traffic_improved.py /tmp/traffic-data/raw /tmp/traffic-data
-          else
-            python .github/scripts/process_traffic.py /tmp/traffic-data/raw /tmp/traffic-data
-          fi
+          python .github/scripts/process_traffic.py /tmp/traffic-data/raw /tmp/traffic-data
 
       - name: Generate markdown report
         run: |

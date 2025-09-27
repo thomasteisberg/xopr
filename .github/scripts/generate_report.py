@@ -61,9 +61,9 @@ def generate_report(data_dir='/tmp/traffic-data'):
         report.append(f"| {row['date'].strftime('%Y-%m-%d')} | {row['views_total']} | {row['views_unique']} |")
     
     # Calculate week-over-week changes if we have enough data
-    if len(recent_df) >= 14:
-        week1 = recent_df.tail(7)
-        week2 = recent_df.head(7)
+    if len(display_df) >= 14:
+        week1 = display_df.tail(7)
+        week2 = display_df.iloc[-14:-7]  # Week before last week
         
         clones_change = ((week1['clones_total'].sum() / max(week2['clones_total'].sum(), 1)) - 1) * 100
         views_change = ((week1['views_total'].sum() / max(week2['views_total'].sum(), 1)) - 1) * 100
@@ -75,13 +75,13 @@ def generate_report(data_dir='/tmp/traffic-data'):
         ]
         report.extend(trend_section)
     
-    # Add summary statistics
+    # Add summary statistics from ALL collected data
     report.extend([
         "\n## Summary Statistics",
-        f"- **Total Clones (14 days):** {recent_df['clones_total'].sum():,} ({recent_df['clones_unique'].sum():,} unique)",
-        f"- **Total Views (14 days):** {recent_df['views_total'].sum():,} ({recent_df['views_unique'].sum():,} unique)",
-        f"- **Average Daily Clones:** {recent_df['clones_total'].mean():.1f} ({recent_df['clones_unique'].mean():.1f} unique)",
-        f"- **Average Daily Views:** {recent_df['views_total'].mean():.1f} ({recent_df['views_unique'].mean():.1f} unique)",
+        f"- **Total Clones ({len(display_df)} days displayed):** {display_df['clones_total'].sum():,} ({display_df['clones_unique'].sum():,} unique)",
+        f"- **Total Views ({len(display_df)} days displayed):** {display_df['views_total'].sum():,} ({display_df['views_unique'].sum():,} unique)",
+        f"- **Average Daily Clones:** {display_df['clones_total'].mean():.1f} ({display_df['clones_unique'].mean():.1f} unique)",
+        f"- **Average Daily Views:** {display_df['views_total'].mean():.1f} ({display_df['views_unique'].mean():.1f} unique)",
         "",
         "## All-Time Statistics",
         f"- **Total Records:** {metadata['record_count']} days",
@@ -122,7 +122,8 @@ def generate_report(data_dir='/tmp/traffic-data'):
         f.write('\n'.join(report))
     
     print(f"✅ Report saved to {report_file}")
-    print(f"   Covered {len(recent_df)} days in recent traffic section")
+    print(f"   Displayed {len(display_df)} days in recent traffic section")
+    print(f"   Total historical data: {len(df)} days")
     
     return True
 
