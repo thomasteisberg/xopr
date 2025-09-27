@@ -29,23 +29,26 @@ def generate_report(data_dir='/tmp/traffic-data'):
     with open(metadata_file, 'r') as f:
         metadata = json.load(f)
     
-    # Get last 14 days of data
+    # Get all available data, sorted by date
+    df = df.sort_values('date')
+    
+    # For display, show up to last 14 days (or all data if less than 14 days)
     last_date = df['date'].max()
     cutoff_date = last_date - timedelta(days=14)
-    recent_df = df[df['date'] > cutoff_date].copy()
+    display_df = df[df['date'] > cutoff_date].copy() if len(df) > 14 else df.copy()
     
     # Create markdown report
     report = [
         "# GitHub Traffic Analytics Report",
         f"\n*Last updated: {datetime.now().strftime('%Y-%m-%d %H:%M UTC')}*\n",
         f"*Data range: {metadata['date_range']['start']} to {metadata['date_range']['end']}*\n",
-        "## Recent Traffic (Last 14 Days)\n",
+        f"## Recent Traffic ({len(display_df)} Days Available)\n",
         "### Clones",
         "| Date | Total | Unique |",
         "|------|-------|--------|"
     ]
     
-    for _, row in recent_df.iterrows():
+    for _, row in display_df.iterrows():
         report.append(f"| {row['date'].strftime('%Y-%m-%d')} | {row['clones_total']} | {row['clones_unique']} |")
     
     report.extend([
@@ -54,7 +57,7 @@ def generate_report(data_dir='/tmp/traffic-data'):
         "|------|-------|--------|"
     ])
     
-    for _, row in recent_df.iterrows():
+    for _, row in display_df.iterrows():
         report.append(f"| {row['date'].strftime('%Y-%m-%d')} | {row['views_total']} | {row['views_unique']} |")
     
     # Calculate week-over-week changes if we have enough data
