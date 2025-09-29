@@ -88,19 +88,54 @@ jobs:
         mkdir -p docs/_build/html/coverage
         cp -r ./coverage-temp/* docs/_build/html/coverage/
     
-    # Copy map assets for polar map functionality
-    - name: Copy map assets
+    # Setup SOPS and decrypt GCS credentials for uploading polar.html
+    - name: Setup SOPS and decrypt credentials
+      if: github.ref == 'refs/heads/main'
+      env:
+        SOPS_AGE_KEY: ${{ secrets.SOPS_AGE_KEY }}
       run: |
-        if [ -d "src/xopr/map" ]; then
-          echo "Copying map assets from src/xopr/map..."
-          mkdir -p docs/_build/html/_static/maps
-          cp -f src/xopr/map/polar.html docs/_build/html/_static/maps/ 2>/dev/null || true
-          cp -f src/xopr/map/parquet_wasm.js docs/_build/html/_static/maps/ 2>/dev/null || true
-          cp -f src/xopr/map/parquet_wasm_bg.wasm docs/_build/html/_static/maps/ 2>/dev/null || true
-          cp -f src/xopr/map/*.parquet docs/_build/html/_static/maps/ 2>/dev/null || true
-          echo "Map assets copied successfully"
+        # Install SOPS
+        curl -LO https://github.com/mozilla/sops/releases/download/v3.8.1/sops-v3.8.1.linux.amd64
+        chmod +x sops-v3.8.1.linux.amd64
+        sudo mv sops-v3.8.1.linux.amd64 /usr/local/bin/sops
+        
+        # Decrypt GCS credentials
+        sops -d .github/encrypted/gcs-credentials.enc.json > /tmp/gcs-key.json
+        
+        # Set up authentication
+        echo "GOOGLE_APPLICATION_CREDENTIALS=/tmp/gcs-key.json" >> $GITHUB_ENV
+    
+    - name: Setup Google Cloud SDK
+      if: github.ref == 'refs/heads/main'
+      uses: google-github-actions/setup-gcloud@v2
+      with:
+        skip_install: false
+    
+    - name: Authenticate to Google Cloud
+      if: github.ref == 'refs/heads/main'
+      run: |
+        gcloud auth activate-service-account --key-file=/tmp/gcs-key.json
+    
+    # Upload polar.html to GCS if it has changed
+    - name: Upload polar.html to Google Cloud Storage
+      if: github.ref == 'refs/heads/main'
+      run: |
+        if [ -f "src/xopr/map/polar.html" ]; then
+          echo "Checking if polar.html needs to be updated in GCS..."
+          
+          # Download existing file to compare (if it exists)
+          gsutil cp gs://opr_stac/map/polar.html /tmp/existing_polar.html 2>/dev/null || touch /tmp/existing_polar.html
+          
+          # Compare files
+          if ! cmp -s src/xopr/map/polar.html /tmp/existing_polar.html; then
+            echo "polar.html has changed, uploading to GCS..."
+            gsutil -h "Cache-Control:public, max-age=3600" cp src/xopr/map/polar.html gs://opr_stac/map/
+            echo "✅ polar.html uploaded successfully to gs://opr_stac/map/"
+          else
+            echo "polar.html hasn't changed, skipping upload"
+          fi
         else
-          echo "Warning: src/xopr/map directory not found, skipping map assets"
+          echo "Warning: src/xopr/map/polar.html not found, skipping upload"
         fi
     
     # Upload artifact for all builds (PR and main)
