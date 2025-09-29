@@ -3,8 +3,8 @@ const polarMapDirective = {
   doc: 'Embed an interactive polar map with GeoParquet data configuration',
   arg: {
     type: String,
-    doc: 'The iframe source URL for the polar map',
-    required: true
+    doc: 'Optional override for polar.html location (defaults to GCS)',
+    required: false
   },
   options: {
     // Standard iframe options
@@ -34,7 +34,11 @@ const polarMapDirective = {
     },
     parquetFiles: { 
       type: String,  // JSON string that will be parsed
-      doc: 'JSON array of parquet filenames (e.g., ["file1.parquet", "file2.parquet"])'
+      doc: 'JSON array of parquet filenames (e.g., ["file1.parquet", "file2.parquet"]) - for single color'
+    },
+    fileGroups: {
+      type: String,  // JSON string that will be parsed
+      doc: 'JSON array of file groups with colors (e.g., [{"files": ["file1.parquet", "file2.parquet"], "color": "burnt orange"}, {"files": ["file3.parquet"], "color": "sky blue"}])'
     },
     dataPath: {
       type: String,
@@ -48,6 +52,9 @@ const polarMapDirective = {
   run(data) {
     const { arg: src, options = {} } = data;
     
+    // Use GCS location by default, or allow override if src is provided
+    const baseUrl = src || 'https://storage.googleapis.com/opr_stac/map/polar.html';
+    
     // Build URL parameters for configuration
     const params = new URLSearchParams();
     
@@ -59,7 +66,18 @@ const polarMapDirective = {
       params.set('dataPath', options.dataPath);
     }
     
-    if (options.parquetFiles) {
+    // Handle fileGroups (new parameter for multiple file groups with colors)
+    if (options.fileGroups) {
+      try {
+        // Parse the JSON string to get the array of file groups
+        const groups = JSON.parse(options.fileGroups.replace(/'/g, '"'));
+        // Pass as JSON string in URL parameter
+        params.set('fileGroups', JSON.stringify(groups));
+      } catch (e) {
+        console.warn('Failed to parse fileGroups:', e);
+      }
+    } else if (options.parquetFiles) {
+      // Fallback to old parquetFiles parameter for backward compatibility
       try {
         // Parse the JSON string to get the array of filenames
         const files = JSON.parse(options.parquetFiles.replace(/'/g, '"'));
@@ -76,7 +94,7 @@ const polarMapDirective = {
     }
     
     // Combine base URL with parameters if any config exists
-    const finalSrc = params.toString() ? `${src}?${params.toString()}` : src;
+    const finalSrc = params.toString() ? `${baseUrl}?${params.toString()}` : baseUrl;
     
     // Create the iframe node with standard attributes
     const iframeNode = {
