@@ -6,8 +6,8 @@ Below is an Antarctic map showing test data. The map loads GeoParquet files dire
   :width: 100%
   :height: 600px
   :pole: south
-  :dataPath: https://storage.googleapis.com/opr_test_dataset_1
-  :fileGroups: [{"files": ["campaign1_*.parquet"], "color": "orange"}, {"files": ["campaign2_*.parquet"], "color": "skyblue"}]
+  :dataPath: https://storage.googleapis.com/opr_stac/catalog
+  :fileGroups: [{"files": ["*2014_Antarctica_DC8.parquet"], "color": "orange"}, {"files": ["*2013_Antarctica_P3.parquet"], "color": "skyblue"}]
   :defaultZoom: 3
   :::
 
