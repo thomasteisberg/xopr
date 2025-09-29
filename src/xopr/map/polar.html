@@ -55,6 +55,31 @@
         const { default: init, readParquet } = await import('https://storage.googleapis.com/opr_test_dataset_1/parquet_wasm.js');
         import * as arrow from 'https://cdn.jsdelivr.net/npm/apache-arrow@14.0.2/+esm';
         
+        // Parse S3 URLs and convert to HTTP URLs (define this before parseConfigFromURL)
+        function parseS3Url(url) {
+            if (!url) return url;
+            
+            // Handle s3:// URLs
+            const s3Match = url.match(/^s3:\/\/([^\/]+)\/(.*)$/);
+            if (s3Match) {
+                const bucket = s3Match[1];
+                const key = s3Match[2];
+                // Try to use the S3 HTTP URL format
+                return `https://${bucket}.s3.amazonaws.com/${key}`;
+            }
+            
+            // Handle S3 ARN format
+            const arnMatch = url.match(/^arn:aws:s3:::([^\/]+)\/(.*)$/);
+            if (arnMatch) {
+                const bucket = arnMatch[1];
+                const key = arnMatch[2];
+                return `https://${bucket}.s3.amazonaws.com/${key}`;
+            }
+            
+            // Return original URL if not S3
+            return url;
+        }
+        
         // Parse configuration from URL parameters
         function parseConfigFromURL() {
             const urlParams = new URLSearchParams(window.location.search);
@@ -74,18 +99,20 @@
             if (urlParams.has('fileGroups')) {
                 try {
                     const groups = JSON.parse(urlParams.get('fileGroups'));
+                    // Note: We'll expand wildcards later when loading files
                     config.fileGroups = groups.map(group => {
                         const processedGroup = { ...group };
                         // Process files in each group
                         if (config.dataPath && group.files) {
                             processedGroup.files = group.files.map(file => {
-                                // If file is already a full URL, use as-is
-                                if (file.startsWith('http://') || file.startsWith('https://')) {
-                                    return file;
+                                // If file is already a full URL (including S3), process it
+                                if (file.startsWith('http://') || file.startsWith('https://') || file.startsWith('s3://')) {
+                                    return parseS3Url(file);
                                 }
-                                // Otherwise, prepend the dataPath
-                                const basePath = config.dataPath.endsWith('/') ? config.dataPath : config.dataPath + '/';
-                                return basePath + file;
+                                // Otherwise, prepend the dataPath (which might be S3)
+                                const basePath = parseS3Url(config.dataPath);
+                                const fullBasePath = basePath.endsWith('/') ? basePath : basePath + '/';
+                                return fullBasePath + file;
                             });
                         }
                         return processedGroup;
@@ -100,18 +127,21 @@
                     const files = JSON.parse(urlParams.get('parquetFiles'));
                     // Convert to fileGroups format with default color
                     const processedFiles = files.map(file => {
-                        // If file is already a full URL, use as-is
-                        if (file.startsWith('http://') || file.startsWith('https://')) {
-                            return file;
+                        // If file is already a full URL (including S3), process it
+                        if (file.startsWith('http://') || file.startsWith('https://') || file.startsWith('s3://')) {
+                            return parseS3Url(file);
                         }
                         // Otherwise, prepend the dataPath if available
                         if (config.dataPath) {
-                            const basePath = config.dataPath.endsWith('/') ? config.dataPath : config.dataPath + '/';
-                            return basePath + file;
+                            const basePath = parseS3Url(config.dataPath);
+                            const fullBasePath = basePath.endsWith('/') ? basePath : basePath + '/';
+                            return fullBasePath + file;
                         }
                         return file;
                     });
+                    // Store in both formats for backward compatibility
                     config.fileGroups = [{ files: processedFiles, color: 'red' }];
+                    config.parquetFiles = processedFiles;  // Keep this for backward compatibility
                 } catch (e) {
                     console.error('Failed to parse parquetFiles from URL:', e);
                     config.fileGroups = [];
@@ -123,6 +153,12 @@
                 config.defaultZoom = parseInt(urlParams.get('defaultZoom'), 10) || 3;
             }
             
+            // Ensure we have at least some configuration
+            if (!config.fileGroups && !config.parquetFiles) {
+                console.warn('No fileGroups or parquetFiles found in URL parameters');
+            }
+            
+            console.log('Parsed config from URL:', config);
             return config;
         }
         
@@ -138,8 +174,14 @@
         function getConfig() {
             // First, try to get config from URL parameters
             const urlConfig = parseConfigFromURL();
-            if (urlConfig && Object.keys(urlConfig).length > 0) {
+            // Check if we have meaningful config (at least pole and files)
+            if (urlConfig && (urlConfig.fileGroups || urlConfig.parquetFiles)) {
                 console.log('Using URL parameter CONFIG:', urlConfig);
+                // Set default pole if not specified
+                if (!urlConfig.pole) {
+                    urlConfig.pole = 'south';
+                    console.log('Using default pole: south');
+                }
                 window.CONFIG = urlConfig;
                 configUsed = true;
                 return urlConfig;
@@ -152,8 +194,8 @@
                 return window.CONFIG;
             }
             
-            // No defaults - CONFIG must be explicitly provided
-            console.error('ERROR: No CONFIG provided. Map requires configuration.');
+            // No valid configuration found
+            console.error('ERROR: No valid CONFIG provided. Map requires configuration.');
             document.getElementById('map').innerHTML = 
                 '<div style="padding: 20px; text-align: center; color: #721c24; background: #f8d7da; border: 1px solid #f5c6cb; border-radius: 4px; margin: 20px;">' +
                 '<strong>Configuration Required</strong><br>' +
@@ -167,7 +209,11 @@
         async function waitForConfig() {
             // Check URL params first (available immediately)
             const urlConfig = parseConfigFromURL();
-            if (urlConfig && Object.keys(urlConfig).length > 0) {
+            if (urlConfig && (urlConfig.fileGroups || urlConfig.parquetFiles)) {
+                // Set default pole if not specified
+                if (!urlConfig.pole) {
+                    urlConfig.pole = 'south';
+                }
                 return urlConfig;
             }
             
@@ -314,6 +360,80 @@
             return { stroke: strokeColor, fill: fillColor, base: validatedColor };
         }
         
+        // Expand wildcards in file patterns
+        async function expandWildcards(pattern, basePath) {
+            // If no wildcards, return as-is
+            if (!pattern.includes('*') && !pattern.includes('?')) {
+                return [pattern];
+            }
+            
+            // For GCS paths
+            if (basePath && basePath.includes('storage.googleapis.com')) {
+                return await expandGCSWildcards(pattern, basePath);
+            }
+            
+            // For S3 paths
+            if (basePath && (basePath.includes('s3.amazonaws.com') || basePath.includes('s3://'))) {
+                return await expandS3Wildcards(pattern, basePath);
+            }
+            
+            // If we can't expand, return the pattern as-is and let it fail later
+            console.warn(`Cannot expand wildcard pattern: ${pattern}`);
+            return [pattern];
+        }
+        
+        // Expand wildcards for Google Cloud Storage
+        async function expandGCSWildcards(pattern, basePath) {
+            // GCS doesn't support listing without authentication in browser
+            // For now, we'll need to handle this server-side or use a pre-generated list
+            console.warn('GCS wildcard expansion not yet implemented client-side');
+            return [pattern];
+        }
+        
+        // Expand wildcards for S3
+        async function expandS3Wildcards(pattern, basePath) {
+            // Parse the S3 bucket and prefix from basePath
+            const url = new URL(parseS3Url(basePath));
+            const bucket = url.hostname.split('.')[0];
+            const prefix = url.pathname.substring(1);
+            
+            try {
+                // S3 LIST API endpoint (requires CORS configuration on bucket)
+                const listUrl = `https://${bucket}.s3.amazonaws.com/?list-type=2&prefix=${prefix}`;
+                const response = await fetch(listUrl);
+                
+                if (!response.ok) {
+                    console.warn('S3 listing failed, returning pattern as-is');
+                    return [pattern];
+                }
+                
+                const text = await response.text();
+                const parser = new DOMParser();
+                const xml = parser.parseFromString(text, 'text/xml');
+                
+                // Extract all Keys from the XML response
+                const keys = Array.from(xml.querySelectorAll('Key')).map(k => k.textContent);
+                
+                // Convert pattern to regex
+                const regexPattern = pattern
+                    .replace(/\./g, '\\.')
+                    .replace(/\*/g, '.*')
+                    .replace(/\?/g, '.');
+                const regex = new RegExp(`^${regexPattern}$`);
+                
+                // Filter keys that match the pattern
+                const matches = keys.filter(key => {
+                    const filename = key.substring(prefix.length);
+                    return regex.test(filename);
+                });
+                
+                return matches.length > 0 ? matches : [pattern];
+            } catch (e) {
+                console.warn('S3 wildcard expansion failed:', e);
+                return [pattern];
+            }
+        }
+        
         // Load parquet file with smart CORS handling
         async function loadParquetFile(filename, projConfig, color = 'red') {
             console.log(`Loading parquet file: ${filename}`);
@@ -409,12 +529,32 @@
                 if (CONFIG.fileGroups && CONFIG.fileGroups.length > 0) {
                     for (const group of CONFIG.fileGroups) {
                         const groupColor = group.color || 'red';
-                        for (const file of (group.files || [])) {
-                            try {
-                                const features = await loadParquetFile(file, projConfig, groupColor);
-                                allFeatures.push(...features);
-                            } catch (e) {
-                                console.error(`Error loading ${file}:`, e);
+                        for (const filePattern of (group.files || [])) {
+                            // Expand wildcards if present
+                            let filesToLoad = [filePattern];
+                            if (filePattern.includes('*') || filePattern.includes('?')) {
+                                // Extract base path from the pattern
+                                const lastSlash = filePattern.lastIndexOf('/');
+                                const basePath = lastSlash > 0 ? filePattern.substring(0, lastSlash + 1) : '';
+                                const pattern = lastSlash > 0 ? filePattern.substring(lastSlash + 1) : filePattern;
+                                
+                                filesToLoad = await expandWildcards(pattern, basePath);
+                                // Make sure we have full paths
+                                if (basePath) {
+                                    filesToLoad = filesToLoad.map(f => 
+                                        f.startsWith('http') || f.startsWith('s3://') ? f : basePath + f
+                                    );
+                                }
+                            }
+                            
+                            // Load each expanded file
+                            for (const file of filesToLoad) {
+                                try {
+                                    const features = await loadParquetFile(file, projConfig, groupColor);
+                                    allFeatures.push(...features);
+                                } catch (e) {
+                                    console.error(`Error loading ${file}:`, e);
+                                }
                             }
                         }
                     }
