@@ -70,28 +70,51 @@
                 config.dataPath = urlParams.get('dataPath');
             }
             
-            // Get parquetFiles parameter (JSON array of filenames)
-            if (urlParams.has('parquetFiles')) {
+            // Get fileGroups parameter (JSON array of file groups with colors)
+            if (urlParams.has('fileGroups')) {
+                try {
+                    const groups = JSON.parse(urlParams.get('fileGroups'));
+                    config.fileGroups = groups.map(group => {
+                        const processedGroup = { ...group };
+                        // Process files in each group
+                        if (config.dataPath && group.files) {
+                            processedGroup.files = group.files.map(file => {
+                                // If file is already a full URL, use as-is
+                                if (file.startsWith('http://') || file.startsWith('https://')) {
+                                    return file;
+                                }
+                                // Otherwise, prepend the dataPath
+                                const basePath = config.dataPath.endsWith('/') ? config.dataPath : config.dataPath + '/';
+                                return basePath + file;
+                            });
+                        }
+                        return processedGroup;
+                    });
+                } catch (e) {
+                    console.error('Failed to parse fileGroups from URL:', e);
+                    config.fileGroups = [];
+                }
+            } else if (urlParams.has('parquetFiles')) {
+                // Fallback to old parquetFiles parameter for backward compatibility
                 try {
                     const files = JSON.parse(urlParams.get('parquetFiles'));
-                    // If dataPath is provided, prepend it to each filename
-                    if (config.dataPath) {
-                        config.parquetFiles = files.map(file => {
-                            // If file is already a full URL, use as-is
-                            if (file.startsWith('http://') || file.startsWith('https://')) {
-                                return file;
-                            }
-                            // Otherwise, prepend the dataPath
+                    // Convert to fileGroups format with default color
+                    const processedFiles = files.map(file => {
+                        // If file is already a full URL, use as-is
+                        if (file.startsWith('http://') || file.startsWith('https://')) {
+                            return file;
+                        }
+                        // Otherwise, prepend the dataPath if available
+                        if (config.dataPath) {
                             const basePath = config.dataPath.endsWith('/') ? config.dataPath : config.dataPath + '/';
                             return basePath + file;
-                        });
-                    } else {
-                        // No dataPath, use files as-is (they should be full URLs)
-                        config.parquetFiles = files;
-                    }
+                        }
+                        return file;
+                    });
+                    config.fileGroups = [{ files: processedFiles, color: 'red' }];
                 } catch (e) {
                     console.error('Failed to parse parquetFiles from URL:', e);
-                    config.parquetFiles = [];
+                    config.fileGroups = [];
                 }
             }
             
@@ -277,8 +300,22 @@
             throw new Error('Failed to fetch resource');
         }
         
+        // Create color styles for features using native CSS color names
+        function createColorStyle(colorName, opacity = 0.8) {
+            // Use a canvas to validate color names - JavaScript recognizes standard CSS color names
+            const ctx = document.createElement('canvas').getContext('2d');
+            ctx.fillStyle = colorName || 'red';  // Default to red if invalid
+            const validatedColor = ctx.fillStyle;  // This will be the computed RGB value
+            
+            // Create stroke and fill colors with opacity
+            const strokeColor = validatedColor + Math.round(opacity * 255).toString(16).padStart(2, '0');
+            const fillColor = validatedColor + Math.round(opacity * 0.25 * 255).toString(16).padStart(2, '0');
+            
+            return { stroke: strokeColor, fill: fillColor, base: validatedColor };
+        }
+        
         // Load parquet file with smart CORS handling
-        async function loadParquetFile(filename, projConfig) {
+        async function loadParquetFile(filename, projConfig, color = 'red') {
             console.log(`Loading parquet file: ${filename}`);
             
             try {
@@ -333,7 +370,8 @@
                             collection: collectionColumn?.get(i) || '',
                             name: nameColumn?.get(i) || `Feature ${i}`,
                             description: descriptionColumn?.get(i) || '',
-                            source_file: filename
+                            source_file: filename,
+                            feature_color: color  // Store the color for this feature
                         }));
                     }
                 }
@@ -367,13 +405,31 @@
                 console.log('Map initialized with CONFIG:', CONFIG);
                 
                 const allFeatures = [];
-                for (const file of CONFIG.parquetFiles) {
-                    try {
-                        const features = await loadParquetFile(file, projConfig);
-                        allFeatures.push(...features);
-                    } catch (e) {
-                        console.error(`Error loading ${file}:`, e);
+                // Process file groups with their associated colors
+                if (CONFIG.fileGroups && CONFIG.fileGroups.length > 0) {
+                    for (const group of CONFIG.fileGroups) {
+                        const groupColor = group.color || 'red';
+                        for (const file of (group.files || [])) {
+                            try {
+                                const features = await loadParquetFile(file, projConfig, groupColor);
+                                allFeatures.push(...features);
+                            } catch (e) {
+                                console.error(`Error loading ${file}:`, e);
+                            }
+                        }
                     }
+                } else if (CONFIG.parquetFiles) {
+                    // Backward compatibility with old parquetFiles format
+                    for (const file of CONFIG.parquetFiles) {
+                        try {
+                            const features = await loadParquetFile(file, projConfig, 'red');
+                            allFeatures.push(...features);
+                        } catch (e) {
+                            console.error(`Error loading ${file}:`, e);
+                        }
+                    }
+                } else {
+                    console.warn('No fileGroups or parquetFiles defined in CONFIG');
                 }
                 
                 // Track selected feature (define outside if block)
@@ -387,33 +443,35 @@
                     const styleFunction = function(feature) {
                         const geomType = feature.getGeometry().getType();
                         const isSelected = feature === selectedFeature;
+                        const featureColor = feature.get('feature_color') || 'red';
                         
-                        // Use blue for selected features, red for normal
-                        const color = isSelected ? 'rgba(0, 100, 255, 0.8)' : 'rgba(255, 0, 0, 0.8)';
-                        const strokeColor = isSelected ? '#0064ff' : '#ff0000';
-                        const fillColor = isSelected ? 'rgba(0, 100, 255, 0.2)' : 'rgba(255, 0, 0, 0.1)';
+                        // Create color styles using the feature's color
+                        const colorStyle = createColorStyle(featureColor, isSelected ? 1.0 : 0.8);
+                        
+                        const pointRadius = isSelected ? 8 : 6;
+                        const lineWidth = isSelected ? 4 : 2;
                         
                         const styles = {
                             'Point': new ol.style.Style({
                                 image: new ol.style.Circle({
-                                    radius: isSelected ? 8 : 6,
-                                    fill: new ol.style.Fill({ color: color }),
+                                    radius: pointRadius,
+                                    fill: new ol.style.Fill({ color: colorStyle.base }),
                                     stroke: new ol.style.Stroke({ color: '#fff', width: isSelected ? 2 : 1.5 })
                                 })
                             }),
                             'LineString': new ol.style.Style({
                                 stroke: new ol.style.Stroke({
-                                    color: strokeColor,
-                                    width: isSelected ? 4 : 2
+                                    color: colorStyle.base,
+                                    width: lineWidth
                                 })
                             }),
                             'Polygon': new ol.style.Style({
                                 stroke: new ol.style.Stroke({
-                                    color: strokeColor,
+                                    color: colorStyle.base,
                                     width: isSelected ? 3 : 2
                                 }),
                                 fill: new ol.style.Fill({
-                                    color: fillColor
+                                    color: colorStyle.fill
                                 })
                             })
                         };
