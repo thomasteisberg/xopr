@@ -76,6 +76,12 @@ jobs:
           echo "Found execution errors in build"
           exit 1
         fi
+        # MyST outputs to _build/site/public, copy to expected location for compatibility
+        if [ -d "_build/site/public" ]; then
+          mkdir -p _build/html
+          cp -r _build/site/public/* _build/html/
+          echo "Copied MyST output from _build/site/public to _build/html"
+        fi
 
     - name: Download coverage artifacts
       uses: actions/download-artifact@v4
