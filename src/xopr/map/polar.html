@@ -382,12 +382,99 @@
             return [pattern];
         }
         
-        // Expand wildcards for Google Cloud Storage
+        // Expand wildcards for Google Cloud Storage using prefix-based listing
         async function expandGCSWildcards(pattern, basePath) {
-            // GCS doesn't support listing without authentication in browser
-            // For now, we'll need to handle this server-side or use a pre-generated list
-            console.warn('GCS wildcard expansion not yet implemented client-side');
-            return [pattern];
+            console.log('Expanding GCS pattern:', pattern, 'with basePath:', basePath);
+            
+            // Extract bucket name and path from the basePath
+            const url = new URL(basePath);
+            const pathParts = url.pathname.substring(1).split('/');
+            const bucket = pathParts[0];
+            const pathPrefix = pathParts.slice(1).join('/');
+            
+            // Check if this is a directory wildcard (ends with /* or /)
+            const isDirectoryWildcard = pattern.endsWith('/*') || pattern.endsWith('/');
+            
+            let prefix = pathPrefix;
+            let filterRegex = null;
+            
+            if (isDirectoryWildcard) {
+                // For directory wildcards, use the directory path as the prefix
+                // Remove trailing /* or / to get clean directory path
+                const dirPath = pattern.replace(/\/?\*?$/, '');
+                prefix = pathPrefix + dirPath;
+                if (!prefix.endsWith('/') && dirPath !== '') {
+                    prefix += '/';
+                }
+                console.log('Directory wildcard detected, using prefix:', prefix);
+                // No additional filtering needed - return everything under this prefix
+            } else if (pattern.includes('*') || pattern.includes('?')) {
+                // Handle file-level wildcards
+                // Try to extract a prefix before the first wildcard
+                const wildcardIndex = Math.min(
+                    pattern.indexOf('*') === -1 ? Infinity : pattern.indexOf('*'),
+                    pattern.indexOf('?') === -1 ? Infinity : pattern.indexOf('?')
+                );
+                
+                if (wildcardIndex > 0) {
+                    // Use the part before wildcard as additional prefix
+                    const additionalPrefix = pattern.substring(0, wildcardIndex);
+                    prefix = pathPrefix + additionalPrefix;
+                }
+                
+                // Convert pattern to regex for filtering results
+                const regexPattern = pattern
+                    .replace(/\./g, '\\.')
+                    .replace(/\*/g, '.*')
+                    .replace(/\?/g, '.');
+                filterRegex = new RegExp(regexPattern);
+            } else {
+                // No wildcards, just use the pattern as-is
+                prefix = pathPrefix + pattern;
+            }
+            
+            try {
+                // Use the GCS XML API to list with prefix
+                const listUrl = `https://storage.googleapis.com/${bucket}/?prefix=${encodeURIComponent(prefix)}`;
+                console.log('Fetching GCS listing from:', listUrl);
+                
+                const response = await fetch(listUrl);
+                if (!response.ok) {
+                    throw new Error(`Failed to list GCS bucket: ${response.status}`);
+                }
+                
+                const text = await response.text();
+                const parser = new DOMParser();
+                const xml = parser.parseFromString(text, 'text/xml');
+                
+                // Extract all Keys from the XML response
+                const keys = Array.from(xml.querySelectorAll('Key')).map(k => k.textContent);
+                console.log(`Found ${keys.length} files with prefix "${prefix}"`);
+                
+                // Filter results based on pattern type
+                let matches = keys;
+                if (!isDirectoryWildcard && filterRegex) {
+                    matches = keys.filter(key => {
+                        // Extract just the filename part after the path prefix
+                        const relativePath = key.substring(pathPrefix.length);
+                        return filterRegex.test(relativePath);
+                    });
+                    console.log(`Filtered to ${matches.length} files matching pattern "${pattern}"`);
+                } else if (isDirectoryWildcard) {
+                    // For directory wildcards, optionally filter to only .parquet files
+                    matches = keys.filter(key => key.endsWith('.parquet'));
+                    console.log(`Found ${matches.length} parquet files under "${prefix}"`);
+                }
+                
+                // Convert keys back to full URLs
+                const fullUrls = matches.map(key => `https://storage.googleapis.com/${bucket}/${key}`);
+                
+                return fullUrls.length > 0 ? fullUrls : [basePath + pattern];
+            } catch (e) {
+                console.error('GCS wildcard expansion failed:', e);
+                // Fallback to trying the pattern as-is
+                return [basePath + pattern];
+            }
         }
         
         // Expand wildcards for S3
@@ -530,21 +617,34 @@
                     for (const group of CONFIG.fileGroups) {
                         const groupColor = group.color || 'red';
                         for (const filePattern of (group.files || [])) {
-                            // Expand wildcards if present
+                            // filePattern is already a full path from parseConfigFromURL
                             let filesToLoad = [filePattern];
+                            
                             if (filePattern.includes('*') || filePattern.includes('?')) {
-                                // Extract base path from the pattern
+                                // Extract base URL and pattern
                                 const lastSlash = filePattern.lastIndexOf('/');
-                                const basePath = lastSlash > 0 ? filePattern.substring(0, lastSlash + 1) : '';
-                                const pattern = lastSlash > 0 ? filePattern.substring(lastSlash + 1) : filePattern;
+                                let basePath = '';
+                                let pattern = filePattern;
                                 
-                                filesToLoad = await expandWildcards(pattern, basePath);
-                                // Make sure we have full paths
-                                if (basePath) {
-                                    filesToLoad = filesToLoad.map(f => 
-                                        f.startsWith('http') || f.startsWith('s3://') ? f : basePath + f
-                                    );
+                                if (lastSlash > 0) {
+                                    basePath = filePattern.substring(0, lastSlash + 1);
+                                    pattern = filePattern.substring(lastSlash + 1);
                                 }
+                                
+                                // For Hive-partitioned GCS catalogs, transform the pattern if needed
+                                // But skip transformation for directory wildcards (provider=bas/*)
+                                const isDirectoryPattern = pattern.endsWith('/*') || pattern.endsWith('/');
+                                
+                                if (basePath.includes('catalog') && !pattern.includes('=') && !isDirectoryPattern) {
+                                    // Transform simple wildcards to match Hive structure
+                                    // e.g., "*2014*.parquet" -> "collection=*2014*/stac.parquet"
+                                    let basePattern = pattern.replace('.parquet', '');
+                                    pattern = `collection=${basePattern}/stac.parquet`;
+                                }
+                                // If pattern already contains '=' (like provider=bas/*), use as-is
+                                
+                                console.log('Expanding pattern:', pattern, 'with basePath:', basePath);
+                                filesToLoad = await expandWildcards(pattern, basePath);
                             }
                             
                             // Load each expanded file
@@ -558,7 +658,7 @@
                             }
                         }
                     }
-                } else if (CONFIG.parquetFiles) {
+                } else if (CONFIG.parquetFiles && Array.isArray(CONFIG.parquetFiles)) {
                     // Backward compatibility with old parquetFiles format
                     for (const file of CONFIG.parquetFiles) {
                         try {
