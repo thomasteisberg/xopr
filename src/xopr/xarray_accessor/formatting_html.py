@@ -20,14 +20,12 @@ from xarray.core.formatting import (
     short_data_repr,
 )
 from xarray.core.options import OPTIONS, _get_boolean_with_default
+from xarray.core.datatree import DataTree
 
 STATIC_FILES = (
     ("xarray.static.html", "icons-svg-inline.html"),
     ("xopr.xarray_accessor", "style.css"),
 )
-
-if TYPE_CHECKING:
-    from xarray.core.datatree import DataTree
 
 
 @lru_cache(None)
