@@ -6,8 +6,8 @@ version: "1.0.0"
 
 # Data source configuration
 data:
-  root: "/path/to/utig/data"  # Update with actual UTIG data path
-  provider: "utig"  # Data provider identifier for xopr:provider metadata
+  root: "/kucresis/scratch/dataproducts/public/data/rds" # Update with actual UTIG data path
+  provider: "utig"  # Data provider identifier for opr:provider metadata
   primary_product: "CSARP_standard"
   extra_products:
     - "CSARP_layer"
@@ -15,29 +15,30 @@ data:
 
   # Campaign filtering (optional)
   campaigns:
-    include: []
-    # Example UTIG campaigns (typically BaslerMKB aircraft):
-    # - "2022_Antarctica_BaslerMKB"
-    # - "2023_Antarctica_BaslerMKB"
-
+    include:
+      # Example UTIG campaigns (typically BaslerMKB aircraft):
+      - "2018_Antarctica_BaslerJKB"
+      - "2022_Antarctica_BaslerMKB"
+      - "2023_Antarctica_BaslerMKB"
     exclude: []
+  campaign_filter: ""  # Regex pattern to match campaign names (empty = no filter)
 
 # Output configuration
 output:
-  path: "${pwd}/stac_catalog_utig"
-  catalog_id: "OPR-UTIG"
-  catalog_description: "Open Polar Radar UTIG airborne data from Basler aircraft"
-  license: "various"
+  path: "./catalog_v3"
+  catalog_id: "OPR"
+  catalog_description: "Open Polar Radar UTIG airborne data"
+  license: "CC-1.0"
 
 # Processing configuration
 processing:
   n_workers: 4  # Number of parallel workers for processing
-  memory_limit: "4GB"  # Memory limit per worker
+  memory_limit: "8GB"  # Memory limit per worker
   max_items: null  # Maximum items to process (null for unlimited)
 
 # Asset configuration
 assets:
-  base_url: "https://example.utexas.edu/data/"  # Update with actual UTIG data URL
+  base_url: "https://data.cresis.ku.edu/data/rds/"  # Update with actual UTIG data URL
 
 # Logging configuration
 logging:
@@ -48,17 +49,3 @@ logging:
 geometry:
   simplify: true
   tolerance: 100.0  # Tolerance in meters for geometry simplification
-
-# Environment-specific settings (optional)
-# environments:
-#   production:
-#     processing:
-#       n_workers: 16
-#     logging:
-#       verbose: false
-#   development:
-#     processing:
-#       n_workers: 2
-#     logging:
-#       verbose: true
-#       level: "DEBUG"
