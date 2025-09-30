@@ -7,7 +7,7 @@ name = "xopr"
 dynamic = ["version"]
 description = "Access Open Polar Radar data in the Python data ecosystem"
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 dependencies = [
     "numpy",
     "scipy",

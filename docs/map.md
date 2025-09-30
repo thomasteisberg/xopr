@@ -7,7 +7,7 @@ Below is an Antarctic map showing test data. The map loads GeoParquet files dire
 :height: 600px
 :pole: south
 :dataPath: https://storage.googleapis.com/opr_stac/catalog
-:fileGroups: [{"files": ["provider=cresis/*Antarctica*"], "color": "navy"}, {"files": ["provider=utig/*Antarctica*"], "color": "orange"}, {"files": ["provider=dtu/*Antarctica*"], "color": "red"}, {"files": ["provider=awi/*Antarctica*"], "color": "lightblue"}]
+:fileGroups: [{"files": ["provider=cresis/*Antarctica*"], "color": "navy"}, {"files": ["provider=utig/*Antarctica*"], "color": "orange"}]
 :defaultZoom: 3
 :::
 
