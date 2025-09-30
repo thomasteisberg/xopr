@@ -36,10 +36,11 @@ class TestCreateItemsFromFlightData:
         # Should not have scientific extension
         assert SCI_EXT not in item.stac_extensions
         
-        # Should have SAR properties and extension
-        assert 'sar:center_frequency' in item.properties
-        assert 'sar:bandwidth' in item.properties
-        assert SAR_EXT in item.stac_extensions
+        # Should have OPR radar properties (no SAR extension anymore)
+        assert 'opr:frequency' in item.properties
+        assert 'opr:bandwidth' in item.properties
+        # SAR extension should not be present (moved to opr namespace)
+        assert SAR_EXT not in item.stac_extensions
 
     @patch('xopr.stac.catalog.extract_item_metadata')
     def test_items_with_doi_only(self, mock_extract):
@@ -119,24 +120,24 @@ class TestCreateItemsFromFlightData:
         assert len(items) == 0  # No items should be created
 
     @patch('xopr.stac.catalog.extract_item_metadata')
-    def test_sar_properties_as_python_types(self, mock_extract):
-        """Test that SAR properties are stored as Python float types."""
+    def test_opr_properties_as_python_types(self, mock_extract):
+        """Test that OPR radar properties are stored as Python float types."""
         # Setup
         mock_extract.return_value = create_mock_metadata()
         flight_data = create_mock_flight_data()
-        
+
         # Test
         items = create_items_from_flight_data(flight_data, get_test_config())
-        
+
         # Assertions
         assert len(items) == 2
         item = items[0]
-        
+
         # Check types are Python float, not numpy
-        assert isinstance(item.properties['sar:center_frequency'], float)
-        assert isinstance(item.properties['sar:bandwidth'], float)
-        assert not isinstance(item.properties['sar:center_frequency'], np.floating)
-        assert not isinstance(item.properties['sar:bandwidth'], np.floating)
+        assert isinstance(item.properties['opr:frequency'], float)
+        assert isinstance(item.properties['opr:bandwidth'], float)
+        assert not isinstance(item.properties['opr:frequency'], np.floating)
+        assert not isinstance(item.properties['opr:bandwidth'], np.floating)
 
 
 class TestBuildCollectionExtent:
