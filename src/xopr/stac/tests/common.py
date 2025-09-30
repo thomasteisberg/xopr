@@ -179,8 +179,8 @@ def create_mock_stac_item(doi=None, citation=None, sar_freq=190e6, sar_bandwidth
     item = Mock(spec=pystac.Item)
     item.properties = {
         'opr:date': '20161014',
-        'opr:flight': 3,
-        'opr:segment': 1
+        'opr:segment': 3,  # Changed from opr:flight
+        'opr:frame': 1  # Changed from opr:segment
     }
     
     # Add scientific properties if provided

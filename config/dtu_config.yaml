@@ -1,0 +1,64 @@
+# XOPR STAC Catalog Configuration - DTU
+# =======================================
+# Configuration for building STAC catalogs from DTU (Technical University of Denmark) radar data
+
+version: "1.0.0"
+
+# Data source configuration
+data:
+  root: "/path/to/dtu/data"  # Update with actual DTU data path
+  provider: "dtu"  # Data provider identifier for xopr:provider metadata
+  primary_product: "CSARP_standard"
+  extra_products:
+    - "CSARP_layer"
+    - "CSARP_qlook"
+
+  # Campaign filtering (optional)
+  campaigns:
+    include: []
+    # Example DTU campaigns:
+    # - "2016_Greenland_TOdtu"
+    # - "2017_Greenland_TOdtu"
+
+    exclude: []
+
+# Output configuration
+output:
+  path: "${pwd}/stac_catalog_dtu"
+  catalog_id: "OPR-DTU"
+  catalog_description: "Open Polar Radar DTU airborne data"
+  license: "various"
+
+# Processing configuration
+processing:
+  n_workers: 4  # Number of parallel workers for processing
+  memory_limit: "4GB"  # Memory limit per worker
+  max_items: null  # Maximum items to process (null for unlimited)
+
+# Asset configuration
+assets:
+  base_url: "https://example.dtu.dk/data/"  # Update with actual DTU data URL
+
+# Logging configuration
+logging:
+  verbose: true
+  level: "INFO"
+
+# Geometry simplification configuration
+geometry:
+  simplify: true
+  tolerance: 100.0  # Tolerance in meters for geometry simplification
+
+# Environment-specific settings (optional)
+# environments:
+#   production:
+#     processing:
+#       n_workers: 16
+#     logging:
+#       verbose: false
+#   development:
+#     processing:
+#       n_workers: 2
+#     logging:
+#       verbose: true
+#       level: "DEBUG"

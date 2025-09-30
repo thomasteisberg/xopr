@@ -1,0 +1,91 @@
+# XOPR STAC Catalog Configuration - CReSIS
+# ==========================================
+# Configuration for building STAC catalogs from CReSIS radar data
+
+version: "1.0.0"
+
+# Data source configuration
+data:
+  root: "/kucresis/scratch/dataproducts/public/data/rds"
+  provider: "cresis"  # Data provider identifier for xopr:provider metadata
+  primary_product: "CSARP_standard"
+  extra_products:
+    - "CSARP_layer"
+    - "CSARP_qlook"
+
+  # Campaign filtering (optional)
+  # Uncomment and modify to process specific campaigns only
+  campaigns:
+    include: []
+    # Example campaigns:
+    # - "2009_Antarctica_TO_Gambit"
+    # - "2010_Antarctica_DC8"
+    # - "2011_Antarctica_DC8"
+    # - "2011_Antarctica_TO"
+    # - "2011_Greenland_P3"
+    # - "2012_Antarctica_DC8"
+    # - "2012_Greenland_P3"
+    # - "2013_Antarctica_Basler"
+    # - "2013_Antarctica_P3"
+    # - "2013_Greenland_P3"
+    # - "2014_Antarctica_DC8"
+    # - "2014_Greenland_P3"
+    # - "2015_Greenland_C130"
+    # - "2016_Antarctica_DC8"
+    # - "2016_Greenland_G1XB"
+    # - "2016_Greenland_P3"
+    # - "2017_Antarctica_Basler"
+    # - "2017_Antarctica_P3"
+    # - "2017_Greenland_P3"
+    # - "2018_Antarctica_DC8"
+    # - "2018_Antarctica_Ground"
+    # - "2018_Greenland_P3"
+    # - "2019_Antarctica_GV"
+    # - "2019_Greenland_P3"
+    # - "2024_Antarctica_GroundGHOST2"
+
+    exclude: []
+    # Example: exclude test or incomplete campaigns
+    # - "test_campaign"
+
+# Output configuration
+output:
+  path: "${pwd}/stac_catalog_cresis"
+  catalog_id: "OPR-CReSIS"
+  catalog_description: "Open Polar Radar CReSIS airborne data"
+  license: "various"
+
+# Processing configuration
+processing:
+  n_workers: 4  # Number of parallel workers for processing
+  memory_limit: "4GB"  # Memory limit per worker
+  max_items: null  # Maximum items to process (null for unlimited)
+
+# Asset configuration
+assets:
+  base_url: "https://data.cresis.ku.edu/data/rds/"
+
+# Logging configuration
+logging:
+  verbose: true
+  level: "INFO"
+
+# Geometry simplification configuration
+geometry:
+  simplify: true
+  tolerance: 100.0  # Tolerance in meters for geometry simplification
+
+# Environment-specific settings (optional)
+# Uncomment to define different settings for different environments
+# environments:
+#   production:
+#     processing:
+#       n_workers: 16
+#     logging:
+#       verbose: false
+#   development:
+#     processing:
+#       n_workers: 2
+#     logging:
+#       verbose: true
+#       level: "DEBUG"

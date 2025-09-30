@@ -92,38 +92,38 @@ def merge_item_geometries(
     if not items:
         return None
     
-    # Check if all items have segment information for flight data
-    has_segments = all(
-        item.properties and item.properties.get('opr:segment') is not None 
+    # Check if all items have frame information for flight data
+    has_frames = all(
+        item.properties and item.properties.get('opr:frame') is not None
         for item in items
     )
-    
-    if has_segments:
-        # Flight data: sort by segment and concatenate coordinates
+
+    if has_frames:
+        # Flight data: sort by frame and concatenate coordinates
         items_with_geoms = []
         for item in items:
             if item.geometry:
                 try:
                     geom = shapely.geometry.shape(item.geometry)
                     if geom.is_valid and geom.geom_type == 'LineString':
-                        segment_num = item.properties.get('opr:segment')
-                        items_with_geoms.append((segment_num, geom, item))
+                        frame_num = item.properties.get('opr:frame')
+                        items_with_geoms.append((frame_num, geom, item))
                 except Exception:
                     continue
         
         if not items_with_geoms:
             return None
         
-        # Sort by segment number
+        # Sort by frame number
         items_with_geoms.sort(key=lambda x: x[0])
-        
+
         # Concatenate coordinates from all LineStrings in order
         all_coords = []
-        for segment_num, geom, item in items_with_geoms:
+        for frame_num, geom, item in items_with_geoms:
             coords = list(geom.coords)
             if all_coords and coords:
                 # Skip first coordinate if it's the same as the last coordinate
-                # (to avoid duplicate points at segment boundaries)
+                # (to avoid duplicate points at frame boundaries)
                 if all_coords[-1] == coords[0]:
                     coords = coords[1:]
             all_coords.extend(coords)
