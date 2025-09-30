@@ -262,11 +262,13 @@ class TestSTACValidation:
         sar_ext = 'https://stac-extensions.github.io/sar/v1.3.0/schema.json'
         
         assert sci_ext in collection_dict['stac_extensions'], "Scientific extension should be present"
-        assert sar_ext in collection_dict['stac_extensions'], "SAR extension should be present"
+        # SAR extension should NOT be present anymore (moved to opr namespace)
+        assert sar_ext not in collection_dict['stac_extensions'], "SAR extension should not be present (moved to opr namespace)"
         assert collection_dict['sci:doi'] == TEST_DOI, "DOI should be aggregated"
-        assert collection_dict['sci:citation'] == TEST_CITATION, "Citation should be aggregated" 
-        assert collection_dict['sar:center_frequency'] == 190e6, "Center frequency should be aggregated"
-        assert collection_dict['sar:bandwidth'] == 50e6, "Bandwidth should be aggregated"
+        assert collection_dict['sci:citation'] == TEST_CITATION, "Citation should be aggregated"
+        # Check OPR properties instead of SAR properties
+        assert collection_dict['opr:frequency'] == 190e6, "Center frequency should be aggregated as opr:frequency"
+        assert collection_dict['opr:bandwidth'] == 50e6, "Bandwidth should be aggregated as opr:bandwidth"
         
         # Create a catalog and add our collection
         catalog = create_catalog(

@@ -36,11 +36,12 @@ class TestSTACIntegration:
                 
                 # Should not have scientific extension
                 assert SCI_EXT not in item.stac_extensions
-                
-                # Should still have SAR properties and extension
-                assert 'sar:center_frequency' in item.properties
-                assert 'sar:bandwidth' in item.properties
-                assert SAR_EXT in item.stac_extensions
+
+                # Should have OPR radar properties (no SAR extension anymore)
+                assert 'opr:frequency' in item.properties
+                assert 'opr:bandwidth' in item.properties
+                # SAR extension should not be present (moved to opr namespace)
+                assert SAR_EXT not in item.stac_extensions
 
     def test_scientific_values_end_to_end(self):
         """Test that scientific values flow correctly through the entire pipeline."""

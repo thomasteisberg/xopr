@@ -159,7 +159,7 @@ def create_mock_campaign_data():
 
 def create_mock_stac_item(doi=None, citation=None, sar_freq=190e6, sar_bandwidth=50e6):
     """Create a mock STAC item for testing.
-    
+
     Parameters
     ----------
     doi : str, optional
@@ -167,9 +167,9 @@ def create_mock_stac_item(doi=None, citation=None, sar_freq=190e6, sar_bandwidth
     citation : str, optional
         Citation to include in properties, by default None
     sar_freq : float, optional
-        SAR center frequency, by default 190e6
+        OPR frequency (formerly SAR center frequency), by default 190e6
     sar_bandwidth : float, optional
-        SAR bandwidth, by default 50e6
+        OPR bandwidth (formerly SAR bandwidth), by default 50e6
         
     Returns
     -------
@@ -188,12 +188,12 @@ def create_mock_stac_item(doi=None, citation=None, sar_freq=190e6, sar_bandwidth
         item.properties['sci:doi'] = doi
     if citation is not None:
         item.properties['sci:citation'] = citation
-        
-    # Add SAR properties
+
+    # Add OPR properties (formerly SAR properties)
     if sar_freq is not None:
-        item.properties['sar:center_frequency'] = sar_freq
+        item.properties['opr:frequency'] = sar_freq
     if sar_bandwidth is not None:
-        item.properties['sar:bandwidth'] = sar_bandwidth
+        item.properties['opr:bandwidth'] = sar_bandwidth
     
     # Mock bbox, datetime, and geometry for extent calculation
     item.bbox = [-69.86, -71.37, -69.84, -71.35]
@@ -204,10 +204,9 @@ def create_mock_stac_item(doi=None, citation=None, sar_freq=190e6, sar_bandwidth
     line_geom = LineString([(-69.86, -71.35), (-69.85, -71.36), (-69.84, -71.37)])
     item.geometry = mapping(line_geom)
     
-    # Default extensions
+    # Default extensions (SAR extension removed - properties moved to opr namespace)
     item.stac_extensions = [
-        'https://stac-extensions.github.io/file/v2.1.0/schema.json',
-        'https://stac-extensions.github.io/sar/v1.3.0/schema.json'
+        'https://stac-extensions.github.io/file/v2.1.0/schema.json'
     ]
     
     # Add scientific extension if scientific properties exist

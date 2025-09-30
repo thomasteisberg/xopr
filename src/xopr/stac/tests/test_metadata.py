@@ -350,23 +350,24 @@ class TestCollectUniformMetadata:
         
         # Test
         extensions, extra_fields = collect_uniform_metadata(
-            items, 
-            ['sci:doi', 'sci:citation', 'sar:center_frequency', 'sar:bandwidth']
+            items,
+            ['sci:doi', 'sci:citation', 'opr:frequency', 'opr:bandwidth']
         )
-        
+
         # Should not have scientific extension
         sci_ext = 'https://stac-extensions.github.io/scientific/v1.0.0/schema.json'
         assert sci_ext not in extensions
-        
+
         # Extra fields should not have scientific properties
         assert 'sci:doi' not in extra_fields
         assert 'sci:citation' not in extra_fields
-        
-        # But SAR properties should be present (uniform across items)
+
+        # OPR properties should be present (uniform across items)
+        # SAR extension should not be present (properties moved to opr namespace)
         sar_ext = 'https://stac-extensions.github.io/sar/v1.3.0/schema.json'
-        assert sar_ext in extensions
-        assert 'sar:center_frequency' in extra_fields
-        assert 'sar:bandwidth' in extra_fields
+        assert sar_ext not in extensions
+        assert 'opr:frequency' in extra_fields
+        assert 'opr:bandwidth' in extra_fields
 
     def test_with_unique_doi(self):
         """Test that scientific extension is added when unique DOI exists."""
@@ -472,12 +473,13 @@ class TestCollectMetadataFromItems:
         # Extra fields should not have scientific properties
         assert 'sci:doi' not in extra_fields
         assert 'sci:citation' not in extra_fields
-        
-        # But should have SAR properties (uniform across items)
+
+        # Should have OPR properties (uniform across items)
+        # SAR extension should not be present (properties moved to opr namespace)
         sar_ext = 'https://stac-extensions.github.io/sar/v1.3.0/schema.json'
-        assert sar_ext in extensions
-        assert 'sar:center_frequency' in extra_fields
-        assert 'sar:bandwidth' in extra_fields
+        assert sar_ext not in extensions
+        assert 'opr:frequency' in extra_fields
+        assert 'opr:bandwidth' in extra_fields
 
     def test_with_unique_doi(self):
         """Test that scientific extension is added when unique DOI exists."""
