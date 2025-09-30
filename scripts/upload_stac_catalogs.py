@@ -28,10 +28,13 @@ except ImportError:
     sys.exit(1)
 
 
-def run_command(cmd: List[str]) -> Tuple[bool, str, str]:
+def run_command(cmd: List[str], env=None) -> Tuple[bool, str, str]:
     """Run a command and return success status, stdout, and stderr."""
     try:
-        result = subprocess.run(cmd, capture_output=True, text=True, check=True)
+        # Use current environment if none provided
+        if env is None:
+            env = os.environ.copy()
+        result = subprocess.run(cmd, capture_output=True, text=True, check=True, env=env)
         return True, result.stdout, result.stderr
     except subprocess.CalledProcessError as e:
         return False, e.stdout, e.stderr
@@ -121,6 +124,33 @@ def extract_info_from_filename(filename: str) -> Dict:
     return info
 
 
+def check_gcs_auth() -> bool:
+    """Check if GCS authentication is configured."""
+    # Try to list the bucket
+    env = os.environ.copy()
+    cmd = ["gsutil", "ls", "gs://opr_stac/"]
+    success, _, stderr = run_command(cmd, env)
+
+    if not success:
+        print("ERROR: Not authenticated to Google Cloud Storage")
+        print(f"Error details: {stderr}")
+        print("\nTo fix this, either:")
+        print("1. Set service account: export GOOGLE_APPLICATION_CREDENTIALS='$HOME/opr-stac-key.json'")
+        print("2. Or use gcloud: gcloud auth application-default login")
+
+        # Check if the environment variable is set
+        if os.environ.get('GOOGLE_APPLICATION_CREDENTIALS'):
+            cred_path = os.environ['GOOGLE_APPLICATION_CREDENTIALS']
+            print(f"\nNote: GOOGLE_APPLICATION_CREDENTIALS is set to: {cred_path}")
+            if not os.path.exists(cred_path):
+                print(f"  ERROR: File does not exist: {cred_path}")
+            else:
+                print(f"  File exists, but authentication is still failing.")
+                print(f"  Check that the service account has storage.objectAdmin role.")
+        return False
+    return True
+
+
 def build_gcs_path(hemisphere: str, provider: str, collection: str) -> str:
     """Build the GCS path for uploading."""
     return f"gs://opr_stac/catalog/hemisphere={hemisphere}/provider={provider}/collection={collection}/stac.parquet"
@@ -134,10 +164,17 @@ def upload_file(local_path: str, gcs_path: str, dry_run: bool = True) -> bool:
         print(f"    TO: {gcs_path}")
         return True
 
+    # Ensure environment variables are passed to gsutil
+    env = os.environ.copy()
+
+    # Debug: Print which credentials are being used
+    if env.get('GOOGLE_APPLICATION_CREDENTIALS'):
+        print(f"   Using credentials: {env['GOOGLE_APPLICATION_CREDENTIALS']}")
+
     cmd = ["gsutil", "cp", local_path, gcs_path]
     print(f"Uploading: {local_path} -> {gcs_path}")
 
-    success, stdout, stderr = run_command(cmd)
+    success, stdout, stderr = run_command(cmd, env)
 
     if not success:
         print(f"Error uploading {local_path}: {stderr}")
@@ -250,7 +287,13 @@ def main():
     # If --execute is specified, override dry_run
     dry_run = not args.execute
 
+    # Check authentication before processing (only for actual uploads)
     if not dry_run:
+        print("Checking GCS authentication...")
+        if not check_gcs_auth():
+            sys.exit(1)
+        print("✅ Authentication successful\n")
+
         response = input("WARNING: This will upload files to GCS. Are you sure? (yes/no): ")
         if response.lower() != 'yes':
             print("Aborted.")
