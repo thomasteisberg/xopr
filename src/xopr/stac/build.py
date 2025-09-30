@@ -18,7 +18,6 @@ import stac_geoparquet
 from .catalog import (
     create_catalog, create_collection,
     build_collection_extent, create_items_from_flight_data,
-    build_collection_extent_and_geometry, merge_flight_geometries,
     export_collection_to_parquet
 )
 from omegaconf import DictConfig
@@ -26,7 +25,6 @@ from .metadata import discover_campaigns, discover_flight_lines
 
 # STAC extension URLs
 SCI_EXT = 'https://stac-extensions.github.io/scientific/v1.0.0/schema.json'
-SAR_EXT = 'https://stac-extensions.github.io/sar/v1.3.0/schema.json'
 
 
 # ============================================================================
@@ -99,12 +97,12 @@ def process_single_flight(
             return None
         
         flight_id = flight_data['flight_id']
-        flight_extent, flight_geometry = build_collection_extent_and_geometry(items)
-        
+        flight_extent = build_collection_extent(items)
+
         # Collect metadata for extensions
         flight_extensions, flight_extra_fields = collect_metadata_from_items(items)
         
-        # Create flight collection
+        # Create flight collection (no geometry per user request - only item-level geometries)
         flight_collection = create_collection(
             collection_id=flight_id,
             description=(
@@ -113,8 +111,8 @@ def process_single_flight(
             ),
             extent=flight_extent,
             license=conf.output.get('license', 'various'),
-            stac_extensions=flight_extensions if flight_extensions else None,
-            geometry=flight_geometry
+            stac_extensions=flight_extensions if flight_extensions else None
+            # geometry parameter removed - collection-level geometry not included in parquet
         )
         
         # Add extra fields
@@ -127,7 +125,6 @@ def process_single_flight(
         return {
             'collection': flight_collection,
             'items': items,
-            'geometry': flight_geometry,
             'flight_id': flight_id
         }
         
@@ -205,18 +202,15 @@ def process_single_campaign(
     # Process flights
     flight_collections = []
     all_campaign_items = []
-    flight_geometries = []
-    
+
     for flight_data in flight_lines:
         flight_result = process_single_flight(
             flight_data, campaign_name, campaign, conf
         )
-        
+
         if flight_result:
             flight_collections.append(flight_result['collection'])
             all_campaign_items.extend(flight_result['items'])
-            if flight_result['geometry'] is not None:
-                flight_geometries.append(flight_result['geometry'])
             
             if verbose:
                 print(f"  Added flight {flight_result['flight_id']} with {len(flight_result['items'])} items")
@@ -228,11 +222,11 @@ def process_single_campaign(
     
     # Create campaign collection
     campaign_extent = build_collection_extent(all_campaign_items)
-    campaign_geometry = merge_flight_geometries(flight_geometries) if flight_geometries else None
-    
+
     # Collect metadata for extensions
     campaign_extensions, campaign_extra_fields = collect_metadata_from_items(all_campaign_items)
     
+    # Create campaign collection (no geometry per user request - only item-level geometries)
     campaign_collection = create_collection(
         collection_id=campaign_name,
         description=(
@@ -241,8 +235,8 @@ def process_single_campaign(
         ),
         extent=campaign_extent,
         license=conf.output.get('license', 'various'),
-        stac_extensions=campaign_extensions if campaign_extensions else None,
-        geometry=campaign_geometry
+        stac_extensions=campaign_extensions if campaign_extensions else None
+        # geometry parameter removed - collection-level geometry not included in parquet
     )
     
     # Add extra fields
@@ -308,25 +302,21 @@ def collect_metadata_from_items(items: List[pystac.Item]) -> tuple:
             extensions.append(SCI_EXT)
         extra_fields['sci:citation'] = citations[0]
     
-    # SAR metadata
+    # OPR radar metadata (formerly SAR extension)
     center_frequencies = [
-        item.properties.get('sar:center_frequency') for item in items
-        if item.properties.get('sar:center_frequency') is not None
+        item.properties.get('opr:frequency') for item in items
+        if item.properties.get('opr:frequency') is not None
     ]
     bandwidths = [
-        item.properties.get('sar:bandwidth') for item in items
-        if item.properties.get('sar:bandwidth') is not None
+        item.properties.get('opr:bandwidth') for item in items
+        if item.properties.get('opr:bandwidth') is not None
     ]
-    
+
     if center_frequencies and len(np.unique(center_frequencies)) == 1:
-        if SAR_EXT not in extensions:
-            extensions.append(SAR_EXT)
-        extra_fields['sar:center_frequency'] = center_frequencies[0]
-    
+        extra_fields['opr:frequency'] = center_frequencies[0]
+
     if bandwidths and len(np.unique(bandwidths)) == 1:
-        if SAR_EXT not in extensions:
-            extensions.append(SAR_EXT)
-        extra_fields['sar:bandwidth'] = bandwidths[0]
+        extra_fields['opr:bandwidth'] = bandwidths[0]
     
     return extensions, extra_fields
 

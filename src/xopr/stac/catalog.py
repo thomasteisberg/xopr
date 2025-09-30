@@ -28,8 +28,7 @@ from omegaconf import DictConfig, OmegaConf
 
 # STAC extension URLs
 SCI_EXT = 'https://stac-extensions.github.io/scientific/v1.0.0/schema.json'
-SAR_EXT = 'https://stac-extensions.github.io/sar/v1.3.0/schema.json'
-PROJ_EXT = 'https://stac-extensions.github.io/projection/v2.0.0/schema.json'
+# PROJ_EXT = 'https://stac-extensions.github.io/projection/v2.0.0/schema.json'  # Not used - no collection-level geometry
 
 
 def create_catalog(
@@ -64,7 +63,7 @@ def create_catalog(
     """
     if stac_extensions is None:
         stac_extensions = [
-            'https://stac-extensions.github.io/projection/v2.0.0/schema.json',
+            # 'https://stac-extensions.github.io/projection/v2.0.0/schema.json',  # Not used - no collection-level geometry
             'https://stac-extensions.github.io/file/v2.1.0/schema.json',
         ]
     
@@ -122,11 +121,11 @@ def create_collection(
     """
     if stac_extensions is None:
         stac_extensions = []
-    
-    # Add projection extension if geometry is provided
-    if geometry is not None and PROJ_EXT not in stac_extensions:
-        stac_extensions = stac_extensions + [PROJ_EXT]
-    
+
+    # Projection extension no longer added - collection-level geometry not used
+    # if geometry is not None and PROJ_EXT not in stac_extensions:
+    #     stac_extensions = stac_extensions + [PROJ_EXT]
+
     collection = pystac.Collection(
         id=collection_id,
         description=description,
@@ -134,11 +133,11 @@ def create_collection(
         license=license,
         stac_extensions=stac_extensions
     )
-    
-    # Add geometry to extra_fields if provided
-    if geometry is not None:
-        collection.extra_fields['proj:geometry'] = geometry
-    
+
+    # Collection-level geometry no longer added per user request
+    # if geometry is not None:
+    #     collection.extra_fields['proj:geometry'] = geometry
+
     return collection
 
 
@@ -286,44 +285,41 @@ def create_items_from_flight_data(
         rel_mat_path = f"{campaign_name}/{primary_data_product}/{flight_id}/{data_path.name}"
         data_href = base_url + rel_mat_path
         
-        # Extract segment number from MAT filename (e.g., "Data_20161014_03_001.mat" -> "001")
-        segment_match = re.search(r'_(\d+)\.mat$', data_path.name)
-        segment = segment_match.group(1)
-        
-        # Extract date and flight number from flight_id (e.g., "20161014_03" -> "20161014", "03")
+        # Extract frame number from MAT filename (e.g., "Data_20161014_03_001.mat" -> "001")
+        frame_match = re.search(r'_(\d+)\.mat$', data_path.name)
+        frame = frame_match.group(1)
+
+        # Extract date and segment number from flight_id (e.g., "20161014_03" -> "20161014", "03")
         # Split on underscore to avoid assuming fixed lengths
         parts = flight_id.split('_')
         date_part = parts[0]  # YYYYMMDD
-        flight_num_str = parts[1]  # Flight number as string
-        
+        segment_num_str = parts[1]  # Segment number as string (formerly flight number)
+
         # Create OPR-specific properties
         properties = {
             'opr:date': date_part,
-            'opr:flight': int(flight_num_str),
-            'opr:segment': int(segment)
+            'opr:segment': int(segment_num_str),  # Changed from opr:flight
+            'opr:frame': int(frame)  # Changed from opr:segment
         }
         
         # Add scientific extension properties if available
         item_stac_extensions = ['https://stac-extensions.github.io/file/v2.1.0/schema.json']
-        
+
         if metadata.get('doi') is not None:
             properties['sci:doi'] = metadata['doi']
-        
+
         if metadata.get('citation') is not None:
             properties['sci:citation'] = metadata['citation']
-        
+
         if metadata.get('doi') is not None or metadata.get('citation') is not None:
             item_stac_extensions.append('https://stac-extensions.github.io/scientific/v1.0.0/schema.json')
-        
-        # Add SAR extension properties if available
+
+        # Add OPR radar properties (formerly in SAR extension)
         if metadata.get('frequency') is not None:
-            properties['sar:center_frequency'] = metadata['frequency']
-        
+            properties['opr:frequency'] = metadata['frequency']
+
         if metadata.get('bandwidth') is not None:
-            properties['sar:bandwidth'] = metadata['bandwidth']
-        
-        if metadata.get('frequency') is not None or metadata.get('bandwidth') is not None:
-            item_stac_extensions.append('https://stac-extensions.github.io/sar/v1.3.0/schema.json')
+            properties['opr:bandwidth'] = metadata['bandwidth']
         
         assets = {}
 
@@ -340,13 +336,13 @@ def create_items_from_flight_data(
                 if data_product_type == primary_data_product:
                     assets['data'] = assets[data_product_type]
         
-        thumb_href = base_url + f"{campaign_name}/images/{flight_id}/{flight_id}_{segment}_2echo_picks.jpg"
+        thumb_href = base_url + f"{campaign_name}/images/{flight_id}/{flight_id}_{frame}_2echo_picks.jpg"
         assets['thumbnails'] = pystac.Asset(
             href=thumb_href,
             media_type=pystac.MediaType.JPEG
         )
-        
-        flight_path_href = base_url + f"{campaign_name}/images/{flight_id}/{flight_id}_{segment}_0maps.jpg"
+
+        flight_path_href = base_url + f"{campaign_name}/images/{flight_id}/{flight_id}_{frame}_0maps.jpg"
         assets['flight_path'] = pystac.Asset(
             href=flight_path_href,
             media_type=pystac.MediaType.JPEG
@@ -366,34 +362,105 @@ def create_items_from_flight_data(
     
     return items
 
+def determine_hemisphere_from_geometry(items: List[pystac.Item]) -> Optional[str]:
+    """
+    Determine hemisphere based on item geometries by checking latitude values.
+
+    Parameters
+    ----------
+    items : List[pystac.Item]
+        STAC items with geometries
+
+    Returns
+    -------
+    str or None
+        'north' for positive latitudes, 'south' for negative, None if unable to determine
+    """
+    if not items:
+        return None
+
+    # Sample latitudes from items
+    latitudes = []
+    for item in items[:10]:  # Sample first 10 items
+        if item.geometry and 'coordinates' in item.geometry:
+            if item.geometry['type'] == 'Point':
+                lat = item.geometry['coordinates'][1]
+                latitudes.append(lat)
+            elif item.geometry['type'] == 'LineString':
+                for coord in item.geometry['coordinates'][:5]:  # Sample first 5 points
+                    latitudes.append(coord[1])
+            elif item.geometry['type'] == 'Polygon':
+                for coord in item.geometry['coordinates'][0][:5]:  # Sample first 5 points
+                    latitudes.append(coord[1])
+
+    if not latitudes:
+        return None
+
+    # Check average latitude
+    avg_lat = sum(latitudes) / len(latitudes)
+    if avg_lat > 45:  # Clearly northern hemisphere
+        return 'north'
+    elif avg_lat < -45:  # Clearly southern hemisphere
+        return 'south'
+
+    return None
+
+
+def determine_hemisphere_from_name(name: str) -> Optional[str]:
+    """
+    Determine hemisphere from collection/campaign name.
+
+    Parameters
+    ----------
+    name : str
+        Collection or campaign name
+
+    Returns
+    -------
+    str or None
+        'north' or 'south', or None if unable to determine
+    """
+    if 'Antarctica' in name:
+        return 'south'
+    elif 'Greenland' in name:
+        return 'north'
+    return None
+
+
 def export_collection_to_parquet(
     collection: pystac.Collection,
-    config: DictConfig
+    config: DictConfig,
+    provider: str = None,
+    hemisphere: str = None
 ) -> Optional[Path]:
     """
     Export a single STAC collection to a parquet file with collection metadata.
-    
+
     This function directly converts STAC items to GeoParquet format without
     intermediate NDJSON, and includes the collection metadata in the Parquet
     file metadata as per the STAC GeoParquet specification.
-    
+
     Parameters
     ----------
     collection : pystac.Collection
         STAC collection to export
     config : DictConfig
         Configuration object with output.path and logging.verbose settings
-        
+    provider : str, optional
+        Data provider from config (awi, cresis, dtu, utig)
+    hemisphere : str, optional
+        Hemisphere ('north' or 'south'). If not provided, will attempt to detect.
+
     Returns
     -------
     Path or None
         Path to the created parquet file, or None if no items to export
-        
+
     Examples
     --------
     >>> from omegaconf import OmegaConf
     >>> config = OmegaConf.create({'output': {'path': './output'}, 'logging': {'verbose': True}})
-    >>> parquet_path = export_collection_to_parquet(collection, config)
+    >>> parquet_path = export_collection_to_parquet(collection, config, provider='cresis')
     >>> print(f"Exported to {parquet_path}")
     """
     # Extract settings from config
@@ -405,23 +472,57 @@ def export_collection_to_parquet(
     if not collection_items:
         for child_collection in collection.get_collections():
             collection_items.extend(list(child_collection.get_items()))
-    
+
     if not collection_items:
         if verbose:
             print(f"  Skipping {collection.id}: no items")
         return None
-    
+
+    # Determine hemisphere if not provided
+    if hemisphere is None:
+        # Try from collection name first
+        hemisphere = determine_hemisphere_from_name(collection.id)
+
+        # Fall back to geometry-based detection
+        if hemisphere is None:
+            hemisphere = determine_hemisphere_from_geometry(collection_items)
+            if verbose and hemisphere:
+                print(f"  Detected hemisphere from geometry: {hemisphere}")
+
+    # Get provider from config if not provided
+    if provider is None:
+        provider = config.data.get('provider')
+
+    if verbose:
+        if hemisphere:
+            print(f"  Hemisphere: {hemisphere}")
+        else:
+            print(f"  WARNING: Could not determine hemisphere for {collection.id}")
+        if provider:
+            print(f"  Provider: {provider}")
+        else:
+            print(f"  WARNING: No provider specified for {collection.id}")
+
     # Ensure output directory exists
     output_dir.mkdir(parents=True, exist_ok=True)
-    
+
     # Export to parquet
     parquet_file = output_dir / f"{collection.id}.parquet"
-    
+
     if verbose:
         print(f"  Exporting collection: {collection.id} ({len(collection_items)} items)")
-    
+
     # Build collections metadata - single collection in this case
     collection_dict = collection.to_dict()
+
+    # Add OPR metadata to collection
+    if 'properties' not in collection_dict:
+        collection_dict['properties'] = {}
+    if hemisphere:
+        collection_dict['properties']['opr:hemisphere'] = hemisphere
+    if provider:
+        collection_dict['properties']['opr:provider'] = provider
+
     # Clean collection links - remove item links with None hrefs
     if 'links' in collection_dict:
         collection_dict['links'] = [
@@ -431,12 +532,21 @@ def export_collection_to_parquet(
     collections_dict = {
         collection.id: collection_dict
     }
-    
-    # Clean items before export - remove links with None hrefs
-    # These are added by PySTAC when items are added to collections but have no physical location
+
+    # Clean items and add xopr metadata before export
     clean_items = []
     for item in collection_items:
         item_dict = item.to_dict()
+
+        # Add OPR metadata to each item
+        if 'properties' not in item_dict:
+            item_dict['properties'] = {}
+        if hemisphere:
+            item_dict['properties']['opr:hemisphere'] = hemisphere
+        if provider:
+            item_dict['properties']['opr:provider'] = provider
+
+        # Clean links with None hrefs
         if 'links' in item_dict:
             item_dict['links'] = [
                 link for link in item_dict['links']

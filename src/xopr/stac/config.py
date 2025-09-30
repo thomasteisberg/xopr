@@ -174,6 +174,7 @@ def get_default_config() -> DictConfig:
         "version": "1.0.0",
         "data": {
             "root": "/data/opr",
+            "provider": None,  # Must be specified: awi, cresis, dtu, utig
             "primary_product": "CSARP_standard",
             "extra_products": ["CSARP_layer", "CSARP_qlook"],
             "campaigns": {
