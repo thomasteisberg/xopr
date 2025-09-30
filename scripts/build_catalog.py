@@ -9,12 +9,14 @@ import logging
 import re
 import sys
 import time
+import warnings
 from pathlib import Path
 from typing import List, Optional
 
 from omegaconf import DictConfig, OmegaConf
 import pystac
 from dask.distributed import Client, LocalCluster, as_completed
+from distributed.worker import logger as worker_logger
 
 sys.path.append(str(Path(__file__).parent.parent / "src"))
 from xopr.stac.config import load_config, save_config, validate_config
@@ -156,26 +158,49 @@ def process_campaign_with_fresh_cluster(campaign_path: Path, conf: DictConfig) -
     campaign_name = campaign_path.name
     print(f"\n🚀 Starting fresh Dask cluster for {campaign_name} with {conf.processing.n_workers} workers")
 
-    # Create a fresh cluster for this campaign
+    # Create a fresh cluster for this campaign with better shutdown settings
     cluster = LocalCluster(
         n_workers=conf.processing.n_workers,
         threads_per_worker=1,
         memory_limit=conf.processing.get('memory_limit', '4GB'),
-        silence_logs=logging.WARNING  # Reduce noise from worker restarts
+        silence_logs=logging.ERROR,  # More aggressive silencing
+        processes=True,  # Use processes for cleaner termination
+        death_timeout=5  # Faster timeout for dead workers
     )
 
+    client = None
     try:
-        with Client(cluster) as client:
-            print(f"   Dashboard: {client.dashboard_link}")
+        client = Client(cluster)
+        print(f"   Dashboard: {client.dashboard_link}")
 
-            # Process the campaign
-            result = build_collection_parallel(campaign_path, conf, client)
-            return result
+        # Process the campaign
+        result = build_collection_parallel(campaign_path, conf, client)
+        return result
 
     finally:
-        # Ensure clean shutdown
+        # Ensure clean shutdown with suppressed error logs
         print(f"   Shutting down cluster for {campaign_name}...")
-        cluster.close()
+
+        # Suppress heartbeat errors during shutdown
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            original_level = worker_logger.level
+            worker_logger.setLevel(logging.CRITICAL)
+
+            try:
+                # Gracefully shutdown workers first
+                if client:
+                    client.shutdown()  # Tells workers to stop gracefully
+                    client.close()
+                # Then close cluster
+                if cluster:
+                    cluster.close(timeout=2)  # Quick timeout to avoid hanging
+            except Exception:
+                pass  # Ignore any errors during shutdown
+            finally:
+                # Reset log level after shutdown
+                worker_logger.setLevel(original_level)
+
         # Give OS time to reclaim resources
         time.sleep(2)
 
