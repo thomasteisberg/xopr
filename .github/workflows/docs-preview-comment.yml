@@ -82,21 +82,15 @@ jobs:
     - name: Install dependencies
       run: uv sync --extra docs
     
-    - name: Build Jupyter Book
+    - name: Build MyST Documentation
       run: |
         cd docs
-        uv run --extra docs jupyter-book build --html --execute
-    
-    # Copy map assets if they exist
-    - name: Copy map assets
-      run: |
-        if [ -d "src/xopr/map" ]; then
-          echo "Copying map assets from src/xopr/map..."
-          mkdir -p docs/_build/html/_static/maps
-          cp -f src/xopr/map/polar.html docs/_build/html/_static/maps/ 2>/dev/null || true
-          cp -f src/xopr/map/parquet_wasm.js docs/_build/html/_static/maps/ 2>/dev/null || true
-          cp -f src/xopr/map/parquet_wasm_bg.wasm docs/_build/html/_static/maps/ 2>/dev/null || true
-          cp -f src/xopr/map/*.parquet docs/_build/html/_static/maps/ 2>/dev/null || true
+        BASE_URL=/xopr uv run --extra docs myst build --html --execute
+        # MyST outputs to _build/site/public, copy to expected location for compatibility
+        if [ -d "_build/site/public" ]; then
+          mkdir -p _build/html
+          cp -r _build/site/public/* _build/html/
+          echo "Copied MyST output from _build/site/public to _build/html"
         fi
     
     - name: Deploy to Surge
