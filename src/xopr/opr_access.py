@@ -141,7 +141,7 @@ class OPRConnection:
                             },
                             {
                                 "op": "=",
-                                "args": [{"property": "opr:flight"}, segment_num]
+                                "args": [{"property": "opr:segment"}, segment_num]
                             }
                         ]
                     }
@@ -494,12 +494,12 @@ class OPRConnection:
             print(f"No items found in collection '{collection_id}'")
             return []
 
-        # Group items by segment (opr:date + opr:flight)
+        # Group items by segment (opr:date + opr:segment)
         segments = {}
         for idx, item in items.iterrows():
             properties = item['properties']
             date = properties['opr:date']
-            flight_num = properties['opr:flight']
+            flight_num = properties['opr:segment']
             
             if date and flight_num is not None:
                 segment_path = f"{date}_{flight_num:02d}"
@@ -514,7 +514,7 @@ class OPRConnection:
                         'item_count': 0
                     }
 
-                segments[segment_path]['frames'].append(properties.get('opr:segment'))
+                segments[segment_path]['frames'].append(properties.get('opr:frame'))
                 segments[segment_path]['item_count'] += 1
 
         # Sort segments by date and flight number
@@ -549,12 +549,12 @@ class OPRConnection:
                 frame = None # Could be multiple frames in the dataset
         else:
             collection = segment['collection']
-            segment_path = f"{segment['properties'].get('opr:date')}_{segment['properties'].get('opr:flight'):02d}" # TODO: Update after resolving https://github.com/thomasteisberg/xopr/issues/22
-            frame = segment['properties'].get('opr:segment')
+            segment_path = f"{segment['properties'].get('opr:date')}_{segment['properties'].get('opr:segment'):02d}"
+            frame = segment['properties'].get('opr:frame')
 
         properties = {}
         if frame:
-            properties['opr:segment'] = frame
+            properties['opr:frame'] = frame
 
         # Query STAC collection for CSARP_layer files matching this specific segment
 
@@ -844,7 +844,7 @@ class OPRConnection:
             segment_path = flight.attrs.get('segment_path')
         else:
             collection = flight['collection']
-            segment_path = f"{flight['properties'].get('opr:date')}_{flight['properties'].get('opr:flight'):02d}" # TODO: Update after resolving https://github.com/thomasteisberg/xopr/issues/22
+            segment_path = f"{flight['properties'].get('opr:date')}_{flight['properties'].get('opr:segment'):02d}"
 
         if 'Antarctica' in collection:
             location = 'antarctic'

@@ -143,7 +143,7 @@ def find_intersections(gdf : gpd.GeoDataFrame, remove_self_intersections: bool =
 
     intersections_tmp = intersections[['id_1', 'id_2', 'intersection_geometry', 'collection_1', 'collection_2', 'geom_1', 'geom_2']].copy()
 
-    for k in ['opr:date', 'opr:flight', 'opr:segment']:
+    for k in ['opr:date', 'opr:segment', 'opr:frame']:
         intersections_tmp[f'{k}_1'] = intersections['properties_1'].apply(lambda x: x[k])
         intersections_tmp[f'{k}_2'] = intersections['properties_2'].apply(lambda x: x[k])
 
@@ -152,9 +152,9 @@ def find_intersections(gdf : gpd.GeoDataFrame, remove_self_intersections: bool =
     if remove_adjacent_intersections:
         intersections = intersections[
             (intersections['opr:date_1'] != intersections['opr:date_2']) |
-            (intersections['opr:flight_1'] != intersections['opr:flight_2']) |
-            ((intersections['opr:segment_1'] != (intersections['opr:segment_2'] + 1)) &
-            (intersections['opr:segment_1'] != (intersections['opr:segment_2'] - 1)))
+            (intersections['opr:segment_1'] != intersections['opr:segment_2']) |
+            ((intersections['opr:frame_1'] != (intersections['opr:frame_2'] + 1)) &
+            (intersections['opr:frame_1'] != (intersections['opr:frame_2'] - 1)))
         ]
 
     if calculate_crossing_angles:
