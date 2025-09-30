@@ -24,7 +24,7 @@ class OPRConnection:
     def __init__(self,
                  collection_url: str = "https://data.cresis.ku.edu/data/",
                  cache_dir: str = None,
-                 stac_parquet_href: str = "gs://opr_stac/catalog/**/**/*.parquet"):
+                 stac_parquet_href: str = "gs://opr_stac/catalog/**/*.parquet"):
         """
         Initialize the OPRConnection with a collection URL and optional cache directory.
 
