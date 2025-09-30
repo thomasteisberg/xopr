@@ -4,8 +4,6 @@
 # Eventually, we should either figure out how to more cleanly integreate a custom _repr_html_
 # or make it generic enough to get a PR into xarray.
 
-from __future__ import annotations
-
 import uuid
 from collections import OrderedDict
 from collections.abc import Mapping
