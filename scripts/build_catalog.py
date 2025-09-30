@@ -26,7 +26,7 @@ from xopr.stac.geometry import build_collection_extent_and_geometry
 def build_collection_parallel(campaign_path: Path, conf: DictConfig, client: Client) -> Optional[Path]:
     """
     Build a parquet collection for a single campaign using parallel processing.
-    
+
     Parameters
     ----------
     campaign_path : Path
@@ -35,7 +35,7 @@ def build_collection_parallel(campaign_path: Path, conf: DictConfig, client: Cli
         Configuration object
     client : Client
         Dask distributed client for parallel processing
-        
+
     Returns
     -------
     Path or None
@@ -137,68 +137,100 @@ def build_collection_parallel(campaign_path: Path, conf: DictConfig, client: Cli
     return parquet_path
 
 
+def process_campaign_with_fresh_cluster(campaign_path: Path, conf: DictConfig) -> Optional[Path]:
+    """
+    Process a single campaign with its own fresh Dask cluster.
+
+    Parameters
+    ----------
+    campaign_path : Path
+        Path to campaign directory
+    conf : DictConfig
+        Configuration object
+
+    Returns
+    -------
+    Path or None
+        Path to created parquet file, or None if failed
+    """
+    campaign_name = campaign_path.name
+    print(f"\n🚀 Starting fresh Dask cluster for {campaign_name} with {conf.processing.n_workers} workers")
+
+    # Create a fresh cluster for this campaign
+    cluster = LocalCluster(
+        n_workers=conf.processing.n_workers,
+        threads_per_worker=1,
+        memory_limit=conf.processing.get('memory_limit', '4GB'),
+        silence_logs=logging.WARNING  # Reduce noise from worker restarts
+    )
+
+    try:
+        with Client(cluster) as client:
+            print(f"   Dashboard: {client.dashboard_link}")
+
+            # Process the campaign
+            result = build_collection_parallel(campaign_path, conf, client)
+            return result
+
+    finally:
+        # Ensure clean shutdown
+        print(f"   Shutting down cluster for {campaign_name}...")
+        cluster.close()
+        # Give OS time to reclaim resources
+        time.sleep(2)
+
+
 def process_catalog(conf: DictConfig):
     """
     Process catalog based on configuration.
-    Campaigns processed sequentially, each using parallel flight processing.
+    Each campaign gets its own fresh Dask cluster for perfect isolation.
     """
     # Discover campaigns
     campaigns = discover_campaigns(Path(conf.data.root), conf)
-    
+
     # Filter by regex if specified
     if conf.data.get('campaign_filter'):
         pattern = re.compile(conf.data.campaign_filter)
         campaigns = [c for c in campaigns if pattern.match(c['name'])]
-    
+
     if not campaigns:
         print("No campaigns found")
         return
-    
-    print(f"Found {len(campaigns)} campaigns")
-    
-    # Setup Dask cluster
-    print(f"🚀 Starting Dask cluster with {conf.processing.n_workers} workers")
-    cluster = LocalCluster(
-        n_workers=conf.processing.n_workers,
-        threads_per_worker=1,
-        memory_limit=conf.processing.get('memory_limit', '4GB')
-    )
-    
-    try:
-        with Client(cluster) as client:
-            print(f"   Dashboard: {client.dashboard_link}")
-            
-            # Process each campaign
-            results = []
-            for i, campaign in enumerate(campaigns):
-                try:
-                    path = build_collection_parallel(Path(campaign['path']), conf, client)
-                    if path:
-                        results.append(path)
-                        
-                    # Restart cluster between campaigns (except after the last one)
-                    if i < len(campaigns) - 1:
-                        next_campaign = campaigns[i + 1]['name']
-                        print(f"\n🔄 Restarting Dask cluster to clear memory before {next_campaign}...")
-                        restart_start_time = time.time()
-                        client.restart()
-                        restart_time = time.time() - restart_start_time
-                        print(f"   Cluster restart completed in {restart_time:.1f} seconds")
-                        print(f"   Workers ready for {next_campaign}\n")
-                        
-                except Exception as e:
-                    logging.error(f"Failed {campaign['name']}: {e}")
-    finally:
-        # Explicitly shut down the cluster
-        print("🔄 Shutting down Dask cluster...")
-        cluster.close()
-    
+
+    print(f"Found {len(campaigns)} campaigns to process")
+    print("=" * 60)
+
+    # Process each campaign with its own cluster
+    results = []
+    for i, campaign in enumerate(campaigns, 1):
+        print(f"\n📊 Processing campaign {i}/{len(campaigns)}: {campaign['name']}")
+        print("-" * 60)
+
+        try:
+            # Each campaign gets a fresh cluster
+            path = process_campaign_with_fresh_cluster(
+                Path(campaign['path']),
+                conf
+            )
+
+            if path:
+                results.append(path)
+                print(f"✅ Successfully processed {campaign['name']}")
+            else:
+                print(f"⚠️ No data produced for {campaign['name']}")
+
+        except Exception as e:
+            logging.error(f"❌ Failed to process {campaign['name']}: {e}")
+            print(f"❌ Failed to process {campaign['name']}: {e}")
+
+    print("=" * 60)
+
     # Save config for reproducibility
     output_path = Path(conf.output.path)
     save_config(conf, output_path / "config_used.yaml")
-    
+
     # Summary
-    print(f"\n🎉 Created {len(results)} parquet files")
+    print(f"\n🎉 Successfully created {len(results)} out of {len(campaigns)} parquet files")
     if results:
         print("📋 Next step: Run aggregate_parquet_catalog.py to create catalog.json")
 
