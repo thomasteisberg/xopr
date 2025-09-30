@@ -164,20 +164,38 @@ def upload_file(local_path: str, gcs_path: str, dry_run: bool = True) -> bool:
         print(f"    TO: {gcs_path}")
         return True
 
-    # Ensure environment variables are passed to gsutil
+    # Check for credentials and use them explicitly
     env = os.environ.copy()
+    cred_path = env.get('GOOGLE_APPLICATION_CREDENTIALS')
 
-    # Debug: Print which credentials are being used
-    if env.get('GOOGLE_APPLICATION_CREDENTIALS'):
-        print(f"   Using credentials: {env['GOOGLE_APPLICATION_CREDENTIALS']}")
+    if cred_path and os.path.exists(cred_path):
+        # Use gsutil with explicit service account key file
+        print(f"   Using credentials: {cred_path}")
+        cmd = [
+            "gsutil",
+            "-o", f"Credentials:gs_service_key_file={cred_path}",
+            "cp", local_path, gcs_path
+        ]
+    else:
+        # Fallback to default authentication
+        print("   Warning: No service account key found, using default authentication")
+        cmd = ["gsutil", "cp", local_path, gcs_path]
 
-    cmd = ["gsutil", "cp", local_path, gcs_path]
     print(f"Uploading: {local_path} -> {gcs_path}")
 
     success, stdout, stderr = run_command(cmd, env)
 
     if not success:
         print(f"Error uploading {local_path}: {stderr}")
+        # Additional debugging
+        if "Anonymous caller" in stderr:
+            print("\nDEBUG: Authentication issue detected!")
+            print(f"  GOOGLE_APPLICATION_CREDENTIALS={env.get('GOOGLE_APPLICATION_CREDENTIALS')}")
+            if cred_path:
+                print(f"  File exists at {cred_path}: {os.path.exists(cred_path)}")
+                if os.path.exists(cred_path):
+                    print(f"  File size: {os.path.getsize(cred_path)} bytes")
+                    print(f"  File readable: {os.access(cred_path, os.R_OK)}")
         return False
 
     return True
