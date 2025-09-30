@@ -7,10 +7,16 @@ Below is an Antarctic map showing test data. The map loads GeoParquet files dire
 :height: 600px
 :pole: south
 :dataPath: https://storage.googleapis.com/opr_stac/catalog
-:fileGroups: [{"files": ["provider=bas/"], "color": "grey"}, 
-              {"files": ["provider=utig/"], "color": "organge"},
-              {"files": ["provider=dtu/"], "color": "red"},
-              {"files": ["provider=cresis/"], "color": "navy"}]
+:fileGroups: [{"files": ["provider=utig/*Antarctica*"], "color": "orange"}, {"files": ["provider=dtu/*Antarctica*"], "color": "red"}, {"files": ["provider=awi/*Antarctica*"], "color": "lightblue"}, {"files": ["provider=cresis/*Antarctica*"], "color": "navy"}]
+:defaultZoom: 3
+:::
+
+:::{polar-map}
+:width: 100%
+:height: 600px
+:pole: north
+:dataPath: https://storage.googleapis.com/opr_stac/catalog
+:fileGroups: [{"files": ["provider=utig/*Greenland*"], "color": "orange"}, {"files": ["provider=dtu/*Greenland*"], "color": "red"}, {"files": ["provider=awi/*Greenland*"], "color": "lightblue"}, {"files": ["provider=cresis/*Greenland*"], "color": "navy"}]
 :defaultZoom: 3
 :::
 
