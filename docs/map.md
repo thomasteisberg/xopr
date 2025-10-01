@@ -1,4 +1,4 @@
-## Radar Data Availability
+# Radar Data Availability
 
 Below are Antarctic and Arctic maps showing radar data availability. These maps loads GeoParquet files (STAC catalogs of radar flight lines) directly in the browser using WebAssembly; they update in real time as any additional catalogs are added.
 
@@ -11,7 +11,7 @@ Below are Antarctic and Arctic maps showing radar data availability. These maps 
   - [Columbia](https://lamont.columbia.edu/research-divisions/marine-polar-geophysics) lines <span style="color: gold; font-weight: bold;">are Yellow</span>
   - [UW](https://environment.uw.edu/news/2020/02/new-radar-technology-sheds-light-on-never-before-seen-antarctic-landscape/) lines <span style="color: purple; font-weight: bold;">are Purple</span>
 
-### Antarctica
+## Antarctica
 
 :::{polar-map}
 :width: 100%
@@ -24,7 +24,7 @@ Below are Antarctic and Arctic maps showing radar data availability. These maps 
 
 *Note, the 2018 UTIG data currently have only been processed to CSARP_qlook; processing to CSARP_standard is pending*
 
-### Greenland
+## Greenland
 
 :::{polar-map}
 :width: 100%
