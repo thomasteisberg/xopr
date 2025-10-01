@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.1] - 2025-09-30
+
+- Maps rewrite to support multi colors for campaigns ([#31](https://github.com/thomasteisberg/xopr/pull/31)) by @espg
+
+
 ## [0.2.0] - 2025-09-18
 
 - API design cleanup ([#24](https://github.com/thomasteisberg/xopr/pull/24)) by @thomasteisberg
