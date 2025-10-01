@@ -15,7 +15,6 @@ project:
     - file: index.md
     - file: design.md
     - file: map.md
-    - file: notebooks/polar_maps.ipynb
     - title: Notebooks
       children:
         - file: notebooks/demo_notebook.ipynb

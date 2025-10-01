@@ -1,4 +1,4 @@
-## Data availability
+## Radar Data Availability
 
 Below are Antarctic and Arctic maps showing radar data availability. These maps loads GeoParquet files (STAC catalogs of radar flight lines) directly in the browser using WebAssembly; they update in real time as any additional catalogs are added.
 
