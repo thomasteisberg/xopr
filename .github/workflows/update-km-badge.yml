@@ -11,7 +11,9 @@ on:
 jobs:
   update-badges:
     runs-on: ubuntu-latest
-    
+    permissions:
+      content: write
+
     steps:
     - uses: actions/checkout@v3
       with:
