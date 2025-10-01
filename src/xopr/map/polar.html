@@ -620,7 +620,7 @@
                             // filePattern is already a full path from parseConfigFromURL
                             let filesToLoad = [filePattern];
                             
-                            if (filePattern.includes('*') || filePattern.includes('?')) {
+                            if (filePattern.includes('*') || filePattern.includes('?') || filePattern.endsWith('/')) {
                                 // Extract base URL and pattern
                                 const lastSlash = filePattern.lastIndexOf('/');
                                 let basePath = '';
