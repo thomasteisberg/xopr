@@ -26,6 +26,7 @@ project:
         - file: notebooks/search_and_scaling.ipynb
         - file: notebooks/reading_params.ipynb
         - file: notebooks/crossovers.ipynb
+        - file: notebooks/test_map_display.ipynb
     
 site:
   template: book-theme
