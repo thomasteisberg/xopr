@@ -9,7 +9,7 @@ from unittest.mock import Mock, patch
 from stac_validator.validate import StacValidate
 
 from xopr.stac.catalog import (
-    create_catalog, create_collection, create_item, create_items_from_flight_data
+    create_collection, create_item, create_items_from_flight_data
 )
 from .common import (
     create_mock_metadata, create_mock_flight_data, create_mock_campaign_data,
@@ -44,18 +44,6 @@ class TestSTACValidation:
             return result
         finally:
             Path(temp_file).unlink()
-
-    def test_validate_create_catalog(self):
-        """Test that catalogs created by create_catalog() are valid."""
-        catalog = create_catalog(
-            catalog_id="test-catalog",
-            description="Test catalog for validation"
-        )
-        
-        catalog_dict = catalog.to_dict()
-        validator = StacValidate()
-        result = validator.validate_dict(catalog_dict)
-        assert result is True, f"create_catalog() produced invalid catalog"
 
     def test_validate_create_collection(self):
         """Test that collections created by create_collection() are valid."""
@@ -128,34 +116,6 @@ class TestSTACValidation:
             assert result is True, f"create_items_from_flight_data() produced invalid item {i}"
 
 
-    def test_validate_create_collection_with_geometry(self):
-        """Test that collections with projection extension created by create_collection() are valid."""
-        import pystac
-        from shapely.geometry import LineString, mapping
-        from datetime import datetime
-        
-        # Create geometry for projection extension
-        line = LineString([(-69.86, -71.35), (-69.85, -71.36), (-69.84, -71.37)])
-        geometry = mapping(line)
-        
-        # Create extent
-        spatial_extent = pystac.SpatialExtent(bboxes=[[-69.86, -71.37, -69.84, -71.35]])
-        temporal_extent = pystac.TemporalExtent(intervals=[[datetime(2016, 10, 14), datetime(2016, 10, 14)]])
-        extent = pystac.Extent(spatial=spatial_extent, temporal=temporal_extent)
-        
-        # Test create_collection with geometry (which adds projection extension)
-        collection = create_collection(
-            collection_id="test-projection-collection",
-            description="Test collection with projection extension",
-            extent=extent,
-            geometry=geometry
-        )
-        
-        collection_dict = collection.to_dict()
-        validator = StacValidate()
-        result = validator.validate_dict(collection_dict)
-        assert result is True, f"create_collection() with geometry produced invalid collection"
-
     @patch('xopr.stac.catalog.extract_item_metadata')
     def test_validate_items_with_extensions(self, mock_extract):
         """Test that items with extensions created by create_items_from_flight_data() are valid."""
@@ -202,9 +162,9 @@ class TestSTACValidation:
             assert result is True, f"create_items_from_flight_data() with both extensions produced invalid item"
 
     def test_validate_catalog_with_metadata_aggregation(self):
-        """Test that catalogs using collect_metadata_from_items produce valid STAC with proper metadata."""
-        from xopr.stac.build import collect_metadata_from_items
-        from xopr.stac.catalog import create_collection, create_catalog
+        """Test that catalogs using collect_uniform_metadata produce valid STAC with proper metadata."""
+        from xopr.stac.metadata import collect_uniform_metadata
+        from xopr.stac.catalog import create_collection
         import pystac
         from datetime import datetime
         
@@ -224,8 +184,9 @@ class TestSTACValidation:
             item.self_href = f"https://test.example.com/items/item_{i}.json"
             items.append(item)
         
-        # Test collect_metadata_from_items to get extensions and extra fields
-        extensions, extra_fields = collect_metadata_from_items(items)
+        # Test collect_uniform_metadata to get extensions and extra fields
+        extensions, extra_fields = collect_uniform_metadata(items,
+            ['sci:doi', 'sci:citation', 'opr:frequency', 'opr:bandwidth'])
         
         # Create extent for collection
         spatial_extent = pystac.SpatialExtent(bboxes=[[-69.86, -71.37, -69.84, -71.35]])
@@ -255,7 +216,7 @@ class TestSTACValidation:
         collection_dict = collection.to_dict()
         validator = StacValidate()
         result = validator.validate_dict(collection_dict)
-        assert result is True, f"Collection with collect_metadata_from_items produced invalid STAC"
+        assert result is True, f"Collection with collect_uniform_metadata produced invalid STAC"
         
         # Verify that metadata was properly aggregated
         sci_ext = 'https://stac-extensions.github.io/scientific/v1.0.0/schema.json'
@@ -269,22 +230,6 @@ class TestSTACValidation:
         # Check OPR properties instead of SAR properties
         assert collection_dict['opr:frequency'] == 190e6, "Center frequency should be aggregated as opr:frequency"
         assert collection_dict['opr:bandwidth'] == 50e6, "Bandwidth should be aggregated as opr:bandwidth"
-        
-        # Create a catalog and add our collection
-        catalog = create_catalog(
-            catalog_id="test-metadata-catalog",
-            description="Test catalog with metadata aggregation"
-        )
-        catalog.set_self_href("https://test.example.com/catalog.json")
-        catalog.add_child(collection)
-        
-        # Validate the catalog
-        catalog_dict = catalog.to_dict()
-        validator = StacValidate()
-        result = validator.validate_dict(catalog_dict)
-        if not result:
-            print(f"Catalog validation failed. Errors: {validator.message}")
-        assert result is True, f"Catalog with aggregated metadata produced invalid STAC. Errors: {getattr(validator, 'message', 'Unknown error')}"
 
     def test_invalid_stac_objects_fail_validation(self):
         """Test that invalid STAC objects are correctly rejected by the validator."""

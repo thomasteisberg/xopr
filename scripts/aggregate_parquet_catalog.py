@@ -13,7 +13,7 @@ from omegaconf import OmegaConf
 
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 from xopr.stac.config import load_config
-from xopr.stac.build import build_catalog_from_parquet_metadata
+from xopr.stac.catalog import build_catalog_from_parquet_metadata
 
 
 def main():

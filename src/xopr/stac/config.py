@@ -58,12 +58,8 @@ def load_config(
     if not config_path.exists():
         raise FileNotFoundError(f"Configuration file not found: {config_path}")
     
-    # Start with default configuration
-    conf = get_default_config()
-    
-    # Load user configuration and merge with defaults
-    user_conf = OmegaConf.load(config_path)
-    conf = OmegaConf.merge(conf, user_conf)
+    # Load user configuration directly
+    conf = OmegaConf.load(config_path)
     
     # Apply environment-specific overrides if specified
     if environment and "environments" in conf:
@@ -161,48 +157,3 @@ def validate_config(conf: DictConfig) -> bool:
     return True
 
 
-def get_default_config() -> DictConfig:
-    """
-    Get default configuration as a starting point.
-    
-    Returns
-    -------
-    DictConfig
-        Default configuration
-    """
-    return OmegaConf.create({
-        "version": "1.0.0",
-        "data": {
-            "root": "/data/opr",
-            "provider": None,  # Must be specified: awi, cresis, dtu, utig
-            "primary_product": "CSARP_standard",
-            "extra_products": ["CSARP_layer", "CSARP_qlook"],
-            "campaigns": {
-                "include": [],
-                "exclude": []
-            },
-            "campaign_filter": ""
-        },
-        "output": {
-            "path": "${pwd}/stac_catalog",
-            "catalog_id": "OPR",
-            "catalog_description": "Open Polar Radar airborne data",
-            "license": "various"
-        },
-        "processing": {
-            "n_workers": 4,
-            "memory_limit": "4GB",
-            "max_items": None,
-        },
-        "assets": {
-            "base_url": "https://data.cresis.ku.edu/data/rds/",
-        },
-        "logging": {
-            "verbose": False,
-            "level": "INFO",
-        },
-        "geometry": {
-            "simplify": True,
-            "tolerance": 100.0
-        }
-    })

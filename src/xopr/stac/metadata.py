@@ -238,31 +238,6 @@ def discover_campaigns(data_root: Union[str, Path], conf: Optional[DictConfig] =
     return sorted(campaigns, key=lambda x: (x['year'], x['name']))
 
 
-def discover_data_products(campaign_path: Union[str, Path]) -> List[str]:
-    """
-    Discover available data products in a campaign directory.
-    
-    Parameters
-    ----------
-    campaign_path : Union[str, Path]
-        Path to campaign directory
-    
-    Returns
-    -------
-    List[str]
-        List of data product names (e.g., ["CSARP_standard", "CSARP_layer"])
-    """
-    campaign_path = Path(campaign_path)
-    products = []
-    csarp_pattern = re.compile(r'^CSARP_\w+$')
-    
-    for item in campaign_path.iterdir():
-        if item.is_dir() and csarp_pattern.match(item.name):
-            products.append(item.name)
-    
-    return sorted(products)
-
-
 # Helper functions that were in the original but are still needed
 
 def find_radar_wfs_params(ds):

@@ -48,6 +48,24 @@ class OPRConnection:
             }
             self.fsspec_url_prefix = 'filecache::'
 
+    def _open_file(self, url):
+        """Helper method to open files with appropriate caching."""
+        if self.fsspec_url_prefix:
+            return fsspec.open_local(f"{self.fsspec_url_prefix}{url}", filecache=self.fsspec_cache_kwargs)
+        else:
+            return fsspec.open_local(f"simplecache::{url}", **self.fsspec_cache_kwargs)
+
+    def _extract_segment_info(self, segment):
+        """Extract collection, segment_path, and frame from Dataset or dict."""
+        if isinstance(segment, xr.Dataset):
+            return (segment.attrs.get('collection'),
+                    segment.attrs.get('segment_path'),
+                    segment.attrs.get('frame'))
+        else:
+            return (segment['collection'],
+                    f"{segment['properties'].get('opr:date')}_{segment['properties'].get('opr:segment'):02d}",
+                    segment['properties'].get('opr:frame'))
+
     def query_frames(self, collections: list[str] = None, segment_paths: list[str] = None,
                      geometry = None, date_range: tuple = None, properties: dict = {},
                      max_items: int = None, exclude_geometry: bool = False,
@@ -93,9 +111,7 @@ class OPRConnection:
         
         # Handle collections (seasons)
         if collections is not None:
-            if isinstance(collections, str):
-                collections = [collections]
-            search_params['collections'] = collections
+            search_params['collections'] = [collections] if isinstance(collections, str) else collections
 
         # Handle geometry filtering
         if geometry is not None:
@@ -121,8 +137,7 @@ class OPRConnection:
         filter_conditions = []
 
         if segment_paths is not None:
-            if isinstance(segment_paths, str):
-                segment_paths = [segment_paths]
+            segment_paths = [segment_paths] if isinstance(segment_paths, str) else segment_paths
 
             # Create OR conditions for segment paths
             segment_conditions = []
@@ -249,7 +264,7 @@ class OPRConnection:
                     raise e
 
         if merge_flights:
-            return opr_tools.merge_flights_from_frames(frames)
+            return opr_tools.merge_frames(frames)
         else:
             return frames
 
@@ -300,12 +315,8 @@ class OPRConnection:
         xr.Dataset
             The loaded radar frame as an xarray Dataset.
         """
-        
-        if self.fsspec_url_prefix:
-            file = fsspec.open_local(f"{self.fsspec_url_prefix}{url}", filecache=self.fsspec_cache_kwargs)
-        else:
-            file = fsspec.open_local(f"simplecache::{url}", **self.fsspec_cache_kwargs)
 
+        file = self._open_file(url)
 
         filetype = None
         try:
@@ -539,18 +550,7 @@ class OPRConnection:
         dict
             A dictionary mapping layer IDs to their corresponding data.
         """
-        if isinstance(segment, xr.Dataset):
-            # Get collection and segment information from the dataset attributes
-            collection = segment.attrs.get('collection')
-            segment_path = segment.attrs.get('segment_path')
-            if 'frame' in segment.attrs:
-                frame = segment.attrs.get('frame')
-            else:
-                frame = None # Could be multiple frames in the dataset
-        else:
-            collection = segment['collection']
-            segment_path = f"{segment['properties'].get('opr:date')}_{segment['properties'].get('opr:segment'):02d}"
-            frame = segment['properties'].get('opr:frame')
+        collection, segment_path, frame = self._extract_segment_info(segment)
 
         properties = {}
         if frame:
@@ -663,10 +663,7 @@ class OPRConnection:
             - id: Layer IDs
         """
 
-        if self.fsspec_url_prefix:
-            file = fsspec.open_local(f"{self.fsspec_url_prefix}{url}", filecache=self.fsspec_cache_kwargs)
-        else:
-            file = fsspec.open_local(f"simplecache::{url}", **self.fsspec_cache_kwargs)
+        file = self._open_file(url)
 
         try:
             ds = self._load_layers_hdf5(file)
@@ -838,13 +835,7 @@ class OPRConnection:
             A dictionary mapping layer IDs to their corresponding data.
         """
 
-        if isinstance(flight, xr.Dataset):
-            # Get collection and flight information from the dataset attributes
-            collection = flight.attrs.get('collection')
-            segment_path = flight.attrs.get('segment_path')
-        else:
-            collection = flight['collection']
-            segment_path = f"{flight['properties'].get('opr:date')}_{flight['properties'].get('opr:segment'):02d}"
+        collection, segment_path, _ = self._extract_segment_info(flight)
 
         if 'Antarctica' in collection:
             location = 'antarctic'
