@@ -93,8 +93,8 @@ def build_collection_parallel(campaign_path: Path, conf: DictConfig, client: Cli
         return None
     
     # Build collection
-    print("📐 Building collection extent and geometry...")
-    extent, geometry = build_collection_extent_and_geometry(all_items)
+    print("📐 Building collection extent...")
+    extent = build_collection_extent_and_geometry(all_items)
     extensions, extra_fields = collect_uniform_metadata(
         all_items, 
         ['sci:doi', 'sci:citation', 'sar:center_frequency', 'sar:bandwidth']
@@ -112,8 +112,7 @@ def build_collection_parallel(campaign_path: Path, conf: DictConfig, client: Cli
         description=f"{year} {aircraft} flights over {location}",
         extent=extent,
         license=conf.output.get('license', 'various'),
-        stac_extensions=extensions,
-        geometry=geometry
+        stac_extensions=extensions
     )
     
     for key, value in extra_fields.items():

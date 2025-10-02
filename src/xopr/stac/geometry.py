@@ -66,21 +66,20 @@ def simplify_geometry_polar_projection(
 
 def build_collection_extent_and_geometry(
     items: List[pystac.Item]
-) -> tuple[pystac.Extent, Optional[Dict[str, Any]]]:
+) -> pystac.Extent:
     """
-    Calculate spatial and temporal extent from a list of items, plus merged geometry.
-    
+    Calculate spatial and temporal extent from a list of items.
+
     Parameters
     ----------
     items : list of pystac.Item
         List of STAC items to compute extent from.
-        
+
     Returns
     -------
-    tuple of (pystac.Extent, dict or None)
-        Combined spatial and temporal extent covering all input items,
-        and merged geometry as GeoJSON dict (or None if no geometries).
-        
+    pystac.Extent
+        Combined spatial and temporal extent covering all input items.
+
     Raises
     ------
     ValueError
@@ -88,11 +87,8 @@ def build_collection_extent_and_geometry(
     """
     if not items:
         raise ValueError("Cannot build extent from empty item list")
-    
-    # Merge actual geometries for proj:geometry
-    merged_geometry = merge_item_geometries(items)
-    
-    # Build extent using bboxes (existing logic)
+
+    # Build extent using bboxes
     bboxes = []
     datetimes = []
     
@@ -123,4 +119,4 @@ def build_collection_extent_and_geometry(
         temporal_extent = pystac.TemporalExtent(intervals=[[None, None]])
     
     extent = pystac.Extent(spatial=spatial_extent, temporal=temporal_extent)
-    return extent, merged_geometry
+    return extent

@@ -52,3 +52,4 @@ the link to the myst server.
 ## Instructions of Claude
 - Follow code conventions, testing practices, best practices, and git hygiene
 - When searching or researching, execute both default web search, and kagi search (via mcp)
+- git add all files that you have modified and were already tracked by git

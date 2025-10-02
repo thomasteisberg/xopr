@@ -31,8 +31,7 @@ def create_collection(
     description: str,
     extent: pystac.Extent,
     license: str = "various",
-    stac_extensions: Optional[List[str]] = None,
-    geometry: Optional[Dict[str, Any]] = None
+    stac_extensions: Optional[List[str]] = None
 ) -> pystac.Collection:
     """
     Create a STAC collection for a campaign or data product grouping.
@@ -50,9 +49,6 @@ def create_collection(
     stac_extensions : list of str, optional
         List of STAC extension URLs to enable. If None, defaults to
         empty list.
-    geometry : dict, optional
-        GeoJSON geometry object for the collection. If provided, the
-        projection extension will be added automatically.
         
     Returns
     -------
@@ -74,10 +70,6 @@ def create_collection(
     if stac_extensions is None:
         stac_extensions = []
 
-    # Projection extension no longer added - collection-level geometry not used
-    # if geometry is not None and PROJ_EXT not in stac_extensions:
-    #     stac_extensions = stac_extensions + [PROJ_EXT]
-
     collection = pystac.Collection(
         id=collection_id,
         description=description,
@@ -85,10 +77,6 @@ def create_collection(
         license=license,
         stac_extensions=stac_extensions
     )
-
-    # Collection-level geometry no longer added per user request
-    # if geometry is not None:
-    #     collection.extra_fields['proj:geometry'] = geometry
 
     return collection
 

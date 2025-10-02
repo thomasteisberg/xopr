@@ -116,34 +116,6 @@ class TestSTACValidation:
             assert result is True, f"create_items_from_flight_data() produced invalid item {i}"
 
 
-    def test_validate_create_collection_with_geometry(self):
-        """Test that collections with projection extension created by create_collection() are valid."""
-        import pystac
-        from shapely.geometry import LineString, mapping
-        from datetime import datetime
-        
-        # Create geometry for projection extension
-        line = LineString([(-69.86, -71.35), (-69.85, -71.36), (-69.84, -71.37)])
-        geometry = mapping(line)
-        
-        # Create extent
-        spatial_extent = pystac.SpatialExtent(bboxes=[[-69.86, -71.37, -69.84, -71.35]])
-        temporal_extent = pystac.TemporalExtent(intervals=[[datetime(2016, 10, 14), datetime(2016, 10, 14)]])
-        extent = pystac.Extent(spatial=spatial_extent, temporal=temporal_extent)
-        
-        # Test create_collection with geometry (which adds projection extension)
-        collection = create_collection(
-            collection_id="test-projection-collection",
-            description="Test collection with projection extension",
-            extent=extent,
-            geometry=geometry
-        )
-        
-        collection_dict = collection.to_dict()
-        validator = StacValidate()
-        result = validator.validate_dict(collection_dict)
-        assert result is True, f"create_collection() with geometry produced invalid collection"
-
     @patch('xopr.stac.catalog.extract_item_metadata')
     def test_validate_items_with_extensions(self, mock_extract):
         """Test that items with extensions created by create_items_from_flight_data() are valid."""
