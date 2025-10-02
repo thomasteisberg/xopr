@@ -12,9 +12,7 @@ import numpy as np
 import pyarrow.parquet as pq
 import pystac
 import stac_geoparquet
-from dask.distributed import LocalCluster, Client
 from shapely.geometry import mapping
-from dask.distributed import as_completed
 
 from .metadata import extract_item_metadata, discover_campaigns, discover_flight_lines, collect_uniform_metadata
 from .geometry import (

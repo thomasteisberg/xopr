@@ -77,8 +77,6 @@ def equivalent(first, second) -> bool:
     bool
         True if objects are identical, equal, or both are null/NaN, False otherwise.
     """
-    
-    from xarray.core import duck_array_ops
 
     if first is second:
         return True

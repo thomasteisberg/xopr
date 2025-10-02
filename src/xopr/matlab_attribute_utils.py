@@ -102,12 +102,8 @@ def decode_hdf5_matlab_variable(h5var, skip_variables=False, debug_path="", skip
 def extract_legacy_mat_attributes(file, skip_keys=[], skip_errors=True):
     m = scipy.io.loadmat(file, mat_dtype=False, simplify_cells=True, squeeze_me=True)
 
-    attrs = {}
-    for key, value in m.items():
-        if key.startswith('__') or key in skip_keys:
-            continue
-        else:
-            attrs[key] = value
+    attrs = {key: value for key, value in m.items()
+             if not key.startswith('__') and key not in skip_keys}
 
     attrs = strip_api_key(attrs)
     attrs = convert_object_ndarrays_to_lists(attrs)

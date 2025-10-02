@@ -249,7 +249,7 @@ class OPRConnection:
                     raise e
 
         if merge_flights:
-            return opr_tools.merge_flights_from_frames(frames)
+            return opr_tools.merge_frames(frames)
         else:
             return frames
 

@@ -1,5 +1,4 @@
 import geopandas as gpd
-import json
 from cartopy import crs
 from pyproj import Transformer
 import shapely
