@@ -40,10 +40,15 @@ If you are instructed to test documentation, build it and then deploy it (i.e.,
 `uv run --extra docs myst start` and  `uv run --extra docs myst start`); provide
 the link to the myst server.
 
-# Code Conventions
+## Performance Guidelines
+- Prefer vectorized operations over loops
+- Profile before optimizing
+
+## Code Conventions
 
 - Use spaces (no tabs)
 - Function docstrings should follow numpydoc
 
 ## Instructions of Claude
 - Follow code conventions, testing practices, best practices, and git hygiene
+- When searching or researching, execute both default web search, and kagi search (via mcp)
