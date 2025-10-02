@@ -282,41 +282,22 @@ def collect_metadata_from_items(items: List[pystac.Item]) -> tuple:
     """
     extensions = []
     extra_fields = {}
-    
-    # Scientific metadata
-    dois = [
-        item.properties.get('sci:doi') for item in items
-        if item.properties.get('sci:doi') is not None
-    ]
-    citations = [
-        item.properties.get('sci:citation') for item in items
-        if item.properties.get('sci:citation') is not None
-    ]
-    
-    if dois and len(np.unique(dois)) == 1:
-        extensions.append(SCI_EXT)
-        extra_fields['sci:doi'] = dois[0]
-    
-    if citations and len(np.unique(citations)) == 1:
-        if SCI_EXT not in extensions:
-            extensions.append(SCI_EXT)
-        extra_fields['sci:citation'] = citations[0]
-    
-    # OPR radar metadata (formerly SAR extension)
-    center_frequencies = [
-        item.properties.get('opr:frequency') for item in items
-        if item.properties.get('opr:frequency') is not None
-    ]
-    bandwidths = [
-        item.properties.get('opr:bandwidth') for item in items
-        if item.properties.get('opr:bandwidth') is not None
+
+    # Collect uniform metadata across items
+    metadata_fields = [
+        ('sci:doi', True),         # (property_key, needs_sci_extension)
+        ('sci:citation', True),
+        ('opr:frequency', False),
+        ('opr:bandwidth', False)
     ]
 
-    if center_frequencies and len(np.unique(center_frequencies)) == 1:
-        extra_fields['opr:frequency'] = center_frequencies[0]
-
-    if bandwidths and len(np.unique(bandwidths)) == 1:
-        extra_fields['opr:bandwidth'] = bandwidths[0]
+    for prop_key, needs_sci_ext in metadata_fields:
+        values = [item.properties.get(prop_key) for item in items
+                  if item.properties.get(prop_key) is not None]
+        if values and len(np.unique(values)) == 1:
+            extra_fields[prop_key] = values[0]
+            if needs_sci_ext and SCI_EXT not in extensions:
+                extensions.append(SCI_EXT)
     
     return extensions, extra_fields
 

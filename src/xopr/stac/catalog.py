@@ -303,21 +303,20 @@ def create_items_from_flight_data(
         # Add scientific extension properties if available
         item_stac_extensions = ['https://stac-extensions.github.io/file/v2.1.0/schema.json']
 
-        if metadata.get('doi') is not None:
-            properties['sci:doi'] = metadata['doi']
+        # Map metadata keys to property names
+        meta_mapping = {
+            'doi': 'sci:doi',
+            'citation': 'sci:citation',
+            'frequency': 'opr:frequency',
+            'bandwidth': 'opr:bandwidth'
+        }
 
-        if metadata.get('citation') is not None:
-            properties['sci:citation'] = metadata['citation']
+        for key, prop in meta_mapping.items():
+            if metadata.get(key) is not None:
+                properties[prop] = metadata[key]
 
-        if metadata.get('doi') is not None or metadata.get('citation') is not None:
+        if any(metadata.get(k) is not None for k in ['doi', 'citation']):
             item_stac_extensions.append('https://stac-extensions.github.io/scientific/v1.0.0/schema.json')
-
-        # Add OPR radar properties (formerly in SAR extension)
-        if metadata.get('frequency') is not None:
-            properties['opr:frequency'] = metadata['frequency']
-
-        if metadata.get('bandwidth') is not None:
-            properties['opr:bandwidth'] = metadata['bandwidth']
         
         assets = {}
 
@@ -514,12 +513,11 @@ def export_collection_to_parquet(
     collection_dict = collection.to_dict()
 
     # Add OPR metadata to collection
-    if 'properties' not in collection_dict:
-        collection_dict['properties'] = {}
+    props = collection_dict.setdefault('properties', {})
     if hemisphere:
-        collection_dict['properties']['opr:hemisphere'] = hemisphere
+        props['opr:hemisphere'] = hemisphere
     if provider:
-        collection_dict['properties']['opr:provider'] = provider
+        props['opr:provider'] = provider
 
     # Clean collection links - remove item links with None hrefs
     if 'links' in collection_dict:
