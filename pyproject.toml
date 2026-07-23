@@ -40,7 +40,9 @@ stac = [
     "stac-fastapi-geoparquet[serve]",
     "omegaconf",
     "pyarrow",
-    "mortie",
+    # mortie 0.8.1+ changed the morton index encoding (Rust/healpix migration),
+    # breaking prefix matching in crossovers.py and bedmap/morton_match.py
+    "mortie<0.8.1",
 ]
 docs = [
     "mystmd>=1.10",
