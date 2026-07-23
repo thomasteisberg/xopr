@@ -3,7 +3,7 @@ const polarMapDirective = {
   doc: 'Embed an interactive polar map with GeoParquet data configuration',
   arg: {
     type: String,
-    doc: 'Optional override for polar.html location (defaults to GCS)',
+    doc: 'Optional override for polar.html location (defaults to /polar.html in the docs site)',
     required: false
   },
   options: {
@@ -42,7 +42,7 @@ const polarMapDirective = {
     },
     dataPath: {
       type: String,
-      doc: 'Base URL path for parquet files (e.g., "https://storage.googleapis.com/bucket/")'
+      doc: 'Base URL path for parquet files (e.g., "https://data.source.coop/englacial/xopr/catalog/hemisphere=south")'
     },
     defaultZoom: { 
       type: Number,
@@ -52,8 +52,9 @@ const polarMapDirective = {
   run(data) {
     const { arg: src, options = {} } = data;
     
-    // Use GCS location by default, or allow override if src is provided
-    const baseUrl = src || 'https://storage.googleapis.com/opr_stac/map/polar.html';
+    // src/xopr/map/polar.html is served at the site root via project.static_files
+    // in myst.yml (respecting BASE_URL); allow override via src argument
+    const baseUrl = src || `${process.env.BASE_URL ?? ''}/polar.html`;
     
     // Build URL parameters for configuration
     const params = new URLSearchParams();
@@ -93,8 +94,9 @@ const polarMapDirective = {
       params.set('defaultZoom', options.defaultZoom.toString());
     }
     
-    // Combine base URL with parameters if any config exists
-    const finalSrc = params.toString() ? `${baseUrl}?${params.toString()}` : baseUrl;
+    // Pass config in the fragment: it survives redirects (myst start serves
+    // static files via a 302 that drops query strings) and never hits the server
+    const finalSrc = params.toString() ? `${baseUrl}#${params.toString()}` : baseUrl;
     
     // Create the iframe node with standard attributes
     const iframeNode = {

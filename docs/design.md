@@ -1,4 +1,4 @@
-# xOPR Design
+# Design notes and terminology
 
 ## Guiding Principles
 

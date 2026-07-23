@@ -1,4 +1,4 @@
-# Bedmap Flight Line Coverage
+# Bedmap access
 
 :::{polar-map}
 :width: 100%

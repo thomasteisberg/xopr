@@ -6,34 +6,26 @@ server, and displaying vector geometries from a geoparquet file source.
 Note that since STAC catalogues stored as parquet are also valid
 geoparquet files, we use this to display STAC catalogs.
 
-With the exception of the `polar.html` file, most of the files within
-this module are not referenced directly. This is because we serve the
-`parquet_wasm_bg.wasm`, `parquet_wasm.js`, and
-`test_antarctic_random_walk.parquet` files from Google Cloud Storage...
-which we do to avoid common and annoying issues such as tracking
-relative paths when building documentation pages that incorporate the
-polar maps, and hard to debug CORS errors when accessing resources that
-are hosted on cloud infrastructure that we don't directly control. To
-this point, the `parquet_wasm_bg.wasm` and `parquet_wasm.js` library scripts
-are from the external [parquet-wasm
-project](https://github.com/kylebarron/parquet-wasm); we include them
-(unmodified) here for completeness, and host them on our cloud infrastructure
-at https://storage.googleapis.com/opr_test_dataset_1/parquet_wasm.js and
-https://storage.googleapis.com/opr_test_dataset_1/parquet_wasm_bg.wasm where we
-have configured the buckets with liberal and compliant CORS access policies.
+`polar.html` is self-contained: it loads its JavaScript dependencies
+(OpenLayers, proj4js, Apache Arrow, and
+[parquet-wasm](https://github.com/kylebarron/parquet-wasm)) from public
+CDNs, and reads GeoParquet data from
+[source.coop](https://source.coop/englacial/xopr). The docs site serves
+it at `/polar.html` via `project.static_files` in `docs/myst.yml`
+(works with both `myst start` and `myst build`), where the `polar-map`
+MyST directive (`docs/iframe-map.mjs`) embeds it as an iframe.
 
 ## Map Display
 
-Below is an example of an Antarctic map showing test data. The map loads GeoParquet files directly in the browser using WebAssembly.
+Below is an example of an Antarctic map showing the CReSIS STAC catalog. The map loads GeoParquet files directly in the browser using WebAssembly; configuration is passed via URL parameters.
 
 ```html
-<iframe 
-    src="./polar.html"  # this is usually set to "../_static/maps/polar.html" in our docs generation code
-    width="100%" 
+<iframe
+    src="polar.html?pole=south&dataPath=https://data.source.coop/englacial/xopr/catalog/hemisphere=south&fileGroups=[{"files":["provider=cresis/*"],"color":"navy"}]&defaultZoom=3"
+    width="100%"
     height="600"
     frameborder="0"
-    style="border: 1px solid #ccc; border-radius: 5px;"
-    onload="this.contentWindow.CONFIG = {pole: 'south', parquetFiles: ['https://storage.googleapis.com/opr_test_dataset_1/test_antarctic_random_walk.parquet'], defaultZoom: 3}">
+    style="border: 1px solid #ccc; border-radius: 5px;">
 </iframe>
 ```
 
@@ -44,18 +36,13 @@ Below is an example of an Antarctic map showing test data. The map loads GeoParq
 3. **Basemap**: NASA GIBS Blue Marble imagery via WMS
 4. **Interaction**: Click features for details, click empty areas for coordinates
 
-## Data
-
-The example shows:
-- A random walk path from the South Pole (LineString)
-- Start and end points (Point features)
-- Feature properties with names and descriptions
-
 ## Configuration
 
 The map can be configured with:
 - `pole`: 'north' or 'south' for Arctic/Antarctic
-- `parquetFiles`: Array of parquet file paths to load
+- `dataPath`: Base URL for parquet files
+- `fileGroups`: JSON array of file groups with colors; file entries may use wildcards
+- `parquetFiles`: (legacy) array of parquet file paths to load, single color
 - `defaultZoom`: Initial zoom level
 
 ## Technical Stack
