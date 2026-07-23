@@ -2,17 +2,13 @@
 
 ## Overview
 
-xOPR is a Python library designed to make accessing [Open Polar Radar's](https://ops.cresis.ku.edu/) data archives easy, scalable, and reproducible.
+xOPR is a Python library for working with data products from [Open Polar Radar's](https://ops.cresis.ku.edu/) data archives. xOPR is designed make working with radar sounder data easy, scalable, and reproducible.
 
 :::{tip}
-xOPR is a work in progress! We hope to keep the API relatively stable, but it's still early days and it may evolve.
-
 We welcome your feedback and contributions. If you run into problems or have ideas for how this could be better, please consider [opening an issue](https://github.com/englacial/xopr/issues/new/choose). We also welcome pull requests!
-
-If you're using or thinking about using xOPR, please reach out to thomas.teisberg@astera.org. Even just a one sentence email with what you're interested in using xOPR for or what you'd like it to do for you is helpful!
 :::
 
-xOPR offers access to most of the OPR data catalog, but not absolutely every line. Check out our [availability maps](https://docs.englacial.org/xopr/map/) for details.
+xOPR offers access to most of the OPR data catalog, but not absolutely every line. Check out our [availability maps](map.md) for details.
 
 ## Installing xOPR
 
@@ -44,13 +40,11 @@ frames = opr.load_frames(stac_items)
 (10*np.log10(frames[0].Data)).plot.imshow(x='slow_time', y='twtt', cmap='gray', yincrease=False)
 ```
 
-To learn more, we recommend looking through the notebooks on the left side navigation.
+For a more complete getting started guide, see [getting started](getting-started.md). Or jump in by checking out some of the notebook on the left.
 
 ## Design
 
-For details on the initial design planning of xopr, please see [this OPR wiki page](https://gitlab.com/openpolarradar/opr/-/wikis/OPR-Data-Access-Tool-Planning).
-
-For current design and terminology, see the [design notes](https://docs.englacial.org/xopr/design/) page.
+For current design and terminology, see the [design notes](design.md) page.
 
 ## API Reference
 
@@ -63,3 +57,8 @@ Full API documentation for all xopr modules is available in the [API Reference](
 xOPR acts as an interface to OPR data. It has two primary roles: helping create queries to the OPR STAC catalog to find data and returning radar data in the form of an Xarray Dataset.
 :::
 
+## About
+
+xOPR was originally written by Shane Grigsby and Thomas Teisberg, with extensive input from John Paden. The ongoing development of xOPR is supported by the [Astera Institute](https://astera.org/) as a project of [Englacial](https://englacial.org/).
+
+The current maintainer is Thomas. You can reach him at thomas.teisberg@astera.org.
