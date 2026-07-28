@@ -295,7 +295,7 @@ def project_dataset(ds, target_crs):
     Examples
     --------
     >>> import cartopy.crs as ccrs
-    >>> projected_ds = project_dataset(ds, ccrs.SouthPolarStereo())
+    >>> projected_ds = project_dataset(ds, ccrs.SouthPolarStereo(true_scale_latitude=-71))
     >>> projected_ds = project_dataset(ds, "EPSG:3031")
     """
     if hasattr(target_crs, 'to_epsg') and target_crs.to_epsg():
