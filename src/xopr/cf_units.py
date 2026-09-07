@@ -43,8 +43,9 @@ def apply_cf_compliant_attrs(ds):
     - Bottom: Two-way travel time to detected bottom surface
     - Data: Radar echo power in linear scale
     - Elevation: Platform elevation above WGS84 ellipsoid
-    - Heading: Platform heading angle from north (INS; seasons without it can
-      reconstruct course over ground with ``xopr.radar_util.add_heading``)
+    - Heading: Platform heading angle in radians from north, clockwise positive
+      (INS; seasons without it can reconstruct course over ground with
+      ``xopr.radar_util.add_heading``)
     - Latitude: GPS latitude in WGS84
     - Longitude: GPS longitude in WGS84
     - Pitch: Platform pitch angle (positive nose up)
