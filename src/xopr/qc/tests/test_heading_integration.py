@@ -1,8 +1,8 @@
 """
 Network integration tests for GPS heading reconstruction on real OPR frames.
 
-Thresholds are pinned with margin from scripts/validate_gps_heading.py
-(see claude_notes/20260907-gps-heading-validation.md).
+Thresholds are pinned with margin from the results of
+scripts/validate_gps_heading.py.
 """
 
 import numpy as np

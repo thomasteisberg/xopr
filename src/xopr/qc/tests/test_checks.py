@@ -224,13 +224,6 @@ def test_ensure_heading_invalid_source(synthetic_ds):
         ensure_heading(synthetic_ds, source="bogus")
 
 
-def test_ensure_heading_warns_on_many_nans(synthetic_ds):
-    ds = synthetic_ds.drop_vars("Heading")
-    ds["Latitude"].values[20:80] = np.nan
-    with pytest.warns(UserWarning, match="NaN"):
-        ensure_heading(ds)
-
-
 # ---- minimum_agl -----------------------------------------------------
 
 

@@ -5,8 +5,6 @@ Each check function takes an xarray Dataset and returns a modified copy
 with a per-trace boolean mask added as a new variable.
 """
 
-import warnings
-
 import numpy as np
 import xarray as xr
 from pyproj import Transformer
@@ -97,7 +95,7 @@ def ensure_picks(ds, opr=None):
     return ds
 
 
-def ensure_heading(ds, source="auto", nan_warn_fraction=0.05, **kwargs):
+def ensure_heading(ds, source="auto", **kwargs):
     """
     Ensure a usable ``Heading`` variable exists, reconstructing it from GPS
     positions when the season did not record one.
@@ -111,9 +109,6 @@ def ensure_heading(ds, source="auto", nan_warn_fraction=0.05, **kwargs):
         otherwise reconstructs one. ``"gps"`` always reconstructs (course
         over ground, see :func:`xopr.radar_util.add_heading`).
         ``"measured"`` never reconstructs and raises if missing.
-    nan_warn_fraction : float, optional
-        Warn when more than this fraction of the reconstructed heading is
-        NaN (those traces fail ``heading_change``).
     **kwargs
         Passed to :func:`xopr.radar_util.add_heading`.
 
@@ -143,14 +138,7 @@ def ensure_heading(ds, source="auto", nan_warn_fraction=0.05, **kwargs):
             ds = ds.copy()
             ds.attrs["heading_source"] = "measured"
         return ds
-    ds = add_heading(ds, overwrite=True, **kwargs)
-    nan_frac = float(np.isnan(ds["Heading"].values).mean())
-    if nan_frac > nan_warn_fraction:
-        warnings.warn(
-            f"{nan_frac:.1%} of GPS-reconstructed Heading is NaN; those traces will "
-            "fail heading_change.", UserWarning, stacklevel=2,
-        )
-    return ds
+    return add_heading(ds, overwrite=True, **kwargs)
 
 
 def apply_qc_mask(ds, mask, name):
@@ -337,8 +325,7 @@ def heading_change(ds, max_deg_per_km=5.0, source="auto", **heading_kwargs):
         reconstructed, ``Heading`` (radians).
     max_deg_per_km : float, optional
         Maximum acceptable heading change in degrees per kilometre.
-        Default 5: at typical 15–30 m trace spacing, the trace-to-trace rate
-        on straight P3 lines routinely exceeds 2 deg/km from INS/GPS jitter.
+        Default 5.
     source : {"auto", "measured", "gps"}, optional
         Heading source policy, see :func:`ensure_heading`.
     **heading_kwargs
