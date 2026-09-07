@@ -10,6 +10,8 @@ coordinate conversions between two-way travel time (TWTT), range, and elevation.
 import numpy as np
 import scipy.constants
 import xarray as xr
+from pyproj import Geod
+from scipy.ndimage import uniform_filter1d
 
 from xopr.geometry import project_dataset
 
@@ -63,6 +65,111 @@ def add_along_track(ds: xr.Dataset, projection: str = None) -> xr.Dataset:
     ds['along_track'].attrs['units'] = 'meters'
     ds['along_track'].attrs['description'] = 'Cumulative distance along the radar track'
 
+    return ds
+
+
+def _seconds(t):
+    """Return a time coordinate as float seconds (datetime64 or numeric)."""
+    t = np.asarray(t)
+    if np.issubdtype(t.dtype, np.datetime64):
+        return t.astype('datetime64[ns]').astype('int64') / 1e9
+    return t.astype(float)
+
+
+def add_heading(ds: xr.Dataset, smooth_m: float = 100.0, min_step_m: float = 0.5,
+                max_gap_s: float = 10.0, overwrite: bool = False) -> xr.Dataset:
+    """
+    Add a ``Heading`` variable reconstructed from the GPS track.
+
+    The heading is the WGS84 forward azimuth between neighbouring traces
+    (central pairs for interior traces), smoothed by averaging unit vectors
+    over a window of ``smooth_m`` metres along track. It is therefore the
+    *course over ground*, not the true platform heading: it omits the crab
+    angle from crosswind, which is typically a slowly varying offset of a few
+    degrees. Convention matches OPR: radians clockwise from north in [-π, π].
+
+    Heading is NaN (never guessed) where the position is NaN, the baseline
+    between the paired traces is shorter than ``min_step_m`` (stationary
+    platform, duplicated fixes) or spans more than ``max_gap_s`` seconds
+    (dropouts, frame boundaries). Isolated NaNs whose neighbours are valid
+    are filled from the smoothed track.
+
+    Parameters
+    ----------
+    ds : xr.Dataset
+        Dataset with ``Latitude`` and ``Longitude`` (degrees) on ``slow_time``.
+    smooth_m : float, optional
+        Smoothing window length in metres along track. 0 disables smoothing.
+    min_step_m : float, optional
+        Minimum baseline distance for a valid azimuth.
+    max_gap_s : float, optional
+        Maximum time span of a pair for a valid azimuth.
+    overwrite : bool, optional
+        Replace an existing ``Heading``. By default an existing heading that
+        is not all-NaN is kept untouched.
+
+    Returns
+    -------
+    xr.Dataset
+        Copy with ``Heading`` and ``attrs['heading_source'] = 'gps'``.
+
+    Raises
+    ------
+    ValueError
+        If ``Latitude``/``Longitude`` are missing or ``slow_time`` is not
+        monotonically increasing.
+    """
+    if 'Heading' in ds and not overwrite and not np.all(np.isnan(ds['Heading'].values)):
+        return ds
+    missing = [v for v in ('Latitude', 'Longitude') if v not in ds]
+    if missing:
+        raise ValueError(f"add_heading requires {missing} to reconstruct Heading from GPS")
+
+    lat, lon = ds['Latitude'].values.astype(float), ds['Longitude'].values.astype(float)
+    t = _seconds(ds['slow_time'].values)
+    if np.any(np.diff(t) < 0):
+        raise ValueError("slow_time must be monotonically increasing to reconstruct Heading")
+
+    n = len(lat)
+    az, dist, gap = np.full(n, np.nan), np.full(n, np.nan), np.full(n, np.nan)
+    step_dist = np.full(max(n - 1, 0), np.nan)
+    if n >= 2:
+        geod = Geod(ellps='WGS84')
+        az_s, _, step_dist = geod.inv(lon[:-1], lat[:-1], lon[1:], lat[1:])
+        az[[0, -1]], dist[[0, -1]] = az_s[[0, -1]], step_dist[[0, -1]]
+        gap[[0, -1]] = [t[1] - t[0], t[-1] - t[-2]]
+        if n >= 3:
+            az[1:-1], _, dist[1:-1] = geod.inv(lon[:-2], lat[:-2], lon[2:], lat[2:])
+            gap[1:-1] = t[2:] - t[:-2]
+
+    valid = np.isfinite(az) & (dist >= min_step_m) & (gap <= max_gap_s)
+    h = np.where(valid, np.radians(az), np.nan)
+
+    # Wrap-safe smoothing: average unit vectors over ~smooth_m of track
+    good_steps = step_dist[np.isfinite(step_dist) & (step_dist >= min_step_m)]
+    window = 1
+    if smooth_m > 0 and good_steps.size:
+        window = int(np.clip(round(smooth_m / np.median(good_steps)), 1, n))
+    if window > 1:
+        sin, cos = np.where(valid, np.sin(h), 0.0), np.where(valid, np.cos(h), 0.0)
+        count = uniform_filter1d(valid.astype(float), window, mode='nearest')
+        sm = np.arctan2(uniform_filter1d(sin, window, mode='nearest'),
+                        uniform_filter1d(cos, window, mode='nearest'))
+        isolated = ~valid & np.roll(valid, 1) & np.roll(valid, -1)
+        isolated[[0, -1]] = False
+        h = np.where((valid | isolated) & (count > 0), sm, np.nan)
+
+    ds = ds.copy()
+    ds['Heading'] = xr.DataArray(h, dims='slow_time', attrs={
+        'units': 'radians',
+        'long_name': 'platform heading angle',
+        'comment': ('Course over ground reconstructed from GPS positions; '
+                    'excludes crab angle. Radians from north, clockwise positive.'),
+        'source': 'derived from GPS track (xopr.radar_util.add_heading)',
+        'smooth_m': smooth_m, 'min_step_m': min_step_m, 'max_gap_s': max_gap_s,
+        'valid_min': -np.pi, 'valid_max': np.pi,
+    })
+    ds.attrs['heading_source'] = 'gps'
     return ds
 
 def estimate_vertical_distances(ds: xr.Dataset, epsilon_ice: float = 3.15) -> xr.Dataset:

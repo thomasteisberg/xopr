@@ -5,10 +5,14 @@ Each check function takes an xarray Dataset and returns a modified copy
 with a per-trace boolean mask added as a new variable.
 """
 
+import warnings
+
 import numpy as np
 import xarray as xr
 from pyproj import Transformer
 from scipy.constants import c as speed_of_light
+
+from xopr.radar_util import add_heading
 
 _REQUIRED_LAYERS = {
     "standard:surface": [":surface"],
@@ -93,7 +97,63 @@ def ensure_picks(ds, opr=None):
     return ds
 
 
-def _apply_qc_mask(ds, mask, name):
+def ensure_heading(ds, source="auto", nan_warn_fraction=0.05, **kwargs):
+    """
+    Ensure a usable ``Heading`` variable exists, reconstructing it from GPS
+    positions when the season did not record one.
+
+    Parameters
+    ----------
+    ds : xarray.Dataset
+        Radar dataset.
+    source : {"auto", "measured", "gps"}, optional
+        ``"auto"`` keeps a measured heading if present (and not all-NaN),
+        otherwise reconstructs one. ``"gps"`` always reconstructs (course
+        over ground, see :func:`xopr.radar_util.add_heading`).
+        ``"measured"`` never reconstructs and raises if missing.
+    nan_warn_fraction : float, optional
+        Warn when more than this fraction of the reconstructed heading is
+        NaN (those traces fail ``heading_change``).
+    **kwargs
+        Passed to :func:`xopr.radar_util.add_heading`.
+
+    Returns
+    -------
+    xarray.Dataset
+        Copy of *ds* with ``Heading`` and ``attrs['heading_source']`` set to
+        ``"measured"`` or ``"gps"``.
+
+    Raises
+    ------
+    ValueError
+        If *source* is invalid, if ``source="measured"`` and no heading is
+        present, or if reconstruction is impossible (no ``Latitude`` /
+        ``Longitude``).
+    """
+    if source not in ("auto", "measured", "gps"):
+        raise ValueError(f"source must be 'auto', 'measured' or 'gps', got {source!r}")
+    measured = "Heading" in ds and not np.all(np.isnan(ds["Heading"].values))
+    if source == "measured" or (source == "auto" and measured):
+        if not measured:
+            raise ValueError(
+                "Dataset has no measured 'Heading'. Use source='auto' or 'gps' to "
+                "reconstruct it from GPS positions with xopr.radar_util.add_heading."
+            )
+        if ds.attrs.get("heading_source") != "measured":
+            ds = ds.copy()
+            ds.attrs["heading_source"] = "measured"
+        return ds
+    ds = add_heading(ds, overwrite=True, **kwargs)
+    nan_frac = float(np.isnan(ds["Heading"].values).mean())
+    if nan_frac > nan_warn_fraction:
+        warnings.warn(
+            f"{nan_frac:.1%} of GPS-reconstructed Heading is NaN; those traces will "
+            "fail heading_change.", UserWarning, stacklevel=2,
+        )
+    return ds
+
+
+def apply_qc_mask(ds, mask, name):
     """
     Add a QC mask to a dataset and update the combined ``qc`` variable.
 
@@ -165,7 +225,7 @@ def ice_thickness_threshold(ds, min_thickness_m=500.0, epsilon_ice=3.15):
         dims="slow_time",
     )
     # NaN picks produce NaN thickness → comparison is False
-    return _apply_qc_mask(ds, mask, "ice_thickness_threshold")
+    return apply_qc_mask(ds, mask, "ice_thickness_threshold")
 
 
 def snr_bed_pick(ds, min_snr_db=5.0, noise_region_samples=50):
@@ -220,68 +280,85 @@ def snr_bed_pick(ds, min_snr_db=5.0, noise_region_samples=50):
         snr_db = 10.0 * np.log10(bed_power / noise_floor)
 
     mask = xr.DataArray(snr_db >= min_snr_db, dims="slow_time")
-    return _apply_qc_mask(ds, mask, "snr_bed_pick")
+    return apply_qc_mask(ds, mask, "snr_bed_pick")
 
 
-def heading_change(ds, max_deg_per_km=2.0):
+def heading_rate(ds):
     """
-    Flag traces with rapid aircraft heading changes.
-
-    The heading rate of change is estimated from consecutive traces and
-    normalised by along-track distance.
+    Absolute heading rate of change along track, in degrees per kilometre.
 
     Parameters
     ----------
     ds : xarray.Dataset
-        Must contain ``Heading`` (radians) and ``Latitude`` /
-        ``Longitude`` (degrees).
-    max_deg_per_km : float, optional
-        Maximum acceptable heading change in degrees per kilometre.
-        Default 2.
+        Must contain ``Heading`` (radians) and ``Latitude`` / ``Longitude``
+        (degrees).
 
     Returns
     -------
-    xarray.Dataset
-        Copy with ``qc_heading_change`` and ``qc`` variables.
-
-    Raises
-    ------
-    ValueError
-        If ``Heading``, ``Latitude``, or ``Longitude`` is missing.
+    xarray.DataArray
+        Rate on ``slow_time``; the first trace is 0. NaN where ``Heading``
+        is NaN.
     """
     for var in ("Heading", "Latitude", "Longitude"):
         if var not in ds:
             raise ValueError(f"Dataset is missing required variable '{var}'")
 
     heading_rad = ds["Heading"].values
+    lat, lon = ds["Latitude"].values, ds["Longitude"].values
+    epsg = "EPSG:3031" if np.nanmean(lat) < 0 else "EPSG:3413"
+    x, y = Transformer.from_crs("EPSG:4326", epsg, always_xy=True).transform(lon, lat)
+    dist_m = np.sqrt(np.diff(x) ** 2 + np.diff(y) ** 2)
 
-    # Compute along-track distances in metres via projected coords
-    lat = ds["Latitude"].values
-    lon = ds["Longitude"].values
-    mean_lat = np.nanmean(lat)
-    epsg = "EPSG:3031" if mean_lat < 0 else "EPSG:3413"
-    transformer = Transformer.from_crs("EPSG:4326", epsg, always_xy=True)
-    x, y = transformer.transform(lon, lat)
-
-    dx = np.diff(x)
-    dy = np.diff(y)
-    dist_m = np.sqrt(dx**2 + dy**2)
-
-    # Heading change per step (handle wraparound at ±π)
     dh = np.diff(heading_rad)
     dh = (dh + np.pi) % (2 * np.pi) - np.pi  # wrap to [-π, π]
     dh_deg = np.abs(np.degrees(dh))
-
     with np.errstate(divide="ignore", invalid="ignore"):
-        deg_per_km = np.where(dist_m > 0, dh_deg / (dist_m / 1000.0), 0.0)
+        deg_per_km = np.where(dist_m > 0, dh_deg / (dist_m / 1000.0), 0.0 * dh_deg)
 
-    # First trace has no predecessor → passes by default
-    rate = np.empty(len(heading_rad))
-    rate[0] = 0.0
-    rate[1:] = deg_per_km
+    rate = np.concatenate([[0.0], deg_per_km])
+    return xr.DataArray(rate, dims="slow_time", attrs={"units": "degrees/km"})
 
-    mask = xr.DataArray(rate <= max_deg_per_km, dims="slow_time")
-    return _apply_qc_mask(ds, mask, "heading_change")
+
+def heading_change(ds, max_deg_per_km=2.0, source="auto", **heading_kwargs):
+    """
+    Flag traces with rapid aircraft heading changes.
+
+    The heading rate of change is estimated from consecutive traces and
+    normalised by along-track distance. If the dataset has no ``Heading``
+    (older seasons), one is reconstructed from GPS positions via
+    :func:`ensure_heading`; the reconstruction is course over ground, which
+    differs from the true heading by a slowly varying crab angle that
+    cancels in the rate. NaN headings fail the check.
+
+    Parameters
+    ----------
+    ds : xarray.Dataset
+        Must contain ``Latitude`` / ``Longitude`` (degrees) and, unless
+        reconstructed, ``Heading`` (radians).
+    max_deg_per_km : float, optional
+        Maximum acceptable heading change in degrees per kilometre.
+        Default 2.
+    source : {"auto", "measured", "gps"}, optional
+        Heading source policy, see :func:`ensure_heading`.
+    **heading_kwargs
+        Passed to :func:`xopr.radar_util.add_heading` when reconstructing.
+
+    Returns
+    -------
+    xarray.Dataset
+        Copy with ``qc_heading_change`` and ``qc`` variables (and
+        ``Heading`` if it was reconstructed).
+
+    Raises
+    ------
+    ValueError
+        If ``Latitude`` or ``Longitude`` is missing, or ``Heading`` is
+        missing with ``source="measured"``.
+    """
+    ds = ensure_heading(ds, source=source, **heading_kwargs)
+    rate = heading_rate(ds)
+    mask = xr.DataArray(rate.values <= max_deg_per_km, dims="slow_time")
+    return apply_qc_mask(ds, mask, "heading_change")
 
 
 def minimum_agl(ds, min_agl_m=100.0):
@@ -313,4 +390,4 @@ def minimum_agl(ds, min_agl_m=100.0):
 
     agl = ds["standard:surface"].values * speed_of_light / 2.0
     mask = xr.DataArray(agl >= min_agl_m, dims="slow_time")
-    return _apply_qc_mask(ds, mask, "minimum_agl")
+    return apply_qc_mask(ds, mask, "minimum_agl")

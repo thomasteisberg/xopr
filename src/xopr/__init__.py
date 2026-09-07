@@ -38,6 +38,7 @@ from . import qc as qc
 from .opr_access import OPRConnection as OPRConnection
 from .opr_tools import find_intersections as find_intersections
 from .opr_tools import merge_frames as merge_frames
+from .radar_util import add_heading as add_heading
 from .radar_util import interpolate_to_vertical_grid as interpolate_to_vertical_grid
 from .radar_util import layer_twtt_to_range as layer_twtt_to_range
 
