@@ -8,8 +8,10 @@ import xarray as xr
 from scipy.constants import c as speed_of_light
 
 from xopr.qc.checks import (
+    ensure_heading,
     ensure_picks,
     heading_change,
+    heading_rate,
     ice_thickness_threshold,
     minimum_agl,
     snr_bed_pick,
@@ -36,7 +38,7 @@ def synthetic_ds():
             "standard:surface": ("slow_time", np.full(n_traces, 10e-6)),
             "standard:bottom": ("slow_time", np.full(n_traces, bottom_twtt_val)),
             "Latitude": ("slow_time", np.linspace(-75, -74, n_traces)),
-            "Longitude": ("slow_time", np.linspace(100, 101, n_traces)),
+            "Longitude": ("slow_time", np.full(n_traces, 100.0)),
             "Heading": ("slow_time", np.zeros(n_traces)),
         },
         coords={"slow_time": slow_time, "twtt": twtt},
@@ -159,10 +161,74 @@ def test_heading_change_wraparound(synthetic_ds):
     assert result["qc_heading_change"].values[50]
 
 
-def test_heading_change_missing_var():
-    ds = xr.Dataset({"Latitude": ("slow_time", [1.0])})
-    with pytest.raises(ValueError, match="Heading"):
+def test_heading_change_missing_position():
+    ds = xr.Dataset({"Latitude": ("slow_time", [1.0])}, coords={"slow_time": [0.0]})
+    with pytest.raises(ValueError, match="Longitude"):
         heading_change(ds)
+
+
+def test_heading_change_reconstructs_when_missing(synthetic_ds):
+    """Without Heading, a straight GPS track should pass and be recorded as gps."""
+    ds = synthetic_ds.drop_vars("Heading")
+    result = heading_change(ds, max_deg_per_km=2.0)
+    assert result.attrs["heading_source"] == "gps"
+    assert result["qc_heading_change"].all()
+    assert "Heading" not in ds
+
+
+def test_heading_change_source_measured_raises(synthetic_ds):
+    with pytest.raises(ValueError, match="measured"):
+        heading_change(synthetic_ds.drop_vars("Heading"), source="measured")
+
+
+def test_heading_change_nan_heading_fails(synthetic_ds):
+    synthetic_ds["Heading"].values[40:45] = np.nan
+    result = heading_change(synthetic_ds)
+    assert not result["qc_heading_change"].values[40:46].any()
+    assert result["qc_heading_change"].values[:40].all()
+
+
+def test_heading_rate_matches_check(synthetic_ds):
+    synthetic_ds["Heading"].values[50] = np.pi / 2
+    rate = heading_rate(synthetic_ds)
+    assert rate.dims == ("slow_time",)
+    assert rate.values[0] == 0.0
+    assert rate.values[50] > 0 and rate.values[51] > 0
+    assert np.all(rate.values[[10, 20]] == 0.0)
+
+
+# ---- ensure_heading --------------------------------------------------
+
+
+def test_ensure_heading_keeps_measured(synthetic_ds):
+    synthetic_ds["Heading"].values[:] = 0.5
+    result = ensure_heading(synthetic_ds)
+    assert np.all(result["Heading"].values == 0.5)
+    assert result.attrs["heading_source"] == "measured"
+
+
+def test_ensure_heading_gps_overrides_measured(synthetic_ds):
+    synthetic_ds["Heading"].values[:] = 0.5
+    result = ensure_heading(synthetic_ds, source="gps")
+    assert result.attrs["heading_source"] == "gps"
+    assert np.allclose(result["Heading"].values, 0.0, atol=1e-3)
+
+
+def test_ensure_heading_all_nan_is_missing(synthetic_ds):
+    synthetic_ds["Heading"].values[:] = np.nan
+    assert ensure_heading(synthetic_ds).attrs["heading_source"] == "gps"
+
+
+def test_ensure_heading_invalid_source(synthetic_ds):
+    with pytest.raises(ValueError, match="source"):
+        ensure_heading(synthetic_ds, source="bogus")
+
+
+def test_ensure_heading_warns_on_many_nans(synthetic_ds):
+    ds = synthetic_ds.drop_vars("Heading")
+    ds["Latitude"].values[20:80] = np.nan
+    with pytest.warns(UserWarning, match="NaN"):
+        ensure_heading(ds)
 
 
 # ---- minimum_agl -----------------------------------------------------

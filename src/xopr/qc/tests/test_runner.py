@@ -6,7 +6,7 @@ import numpy as np
 import pytest
 import xarray as xr
 
-from xopr.qc.checks import _apply_qc_mask
+from xopr.qc.checks import apply_qc_mask
 from xopr.qc.runner import run_qc
 
 
@@ -23,7 +23,7 @@ def synthetic_ds():
             "standard:surface": ("slow_time", np.full(n_traces, 10e-6)),
             "standard:bottom": ("slow_time", np.full(n_traces, 40e-6)),
             "Latitude": ("slow_time", np.linspace(-75, -74, n_traces)),
-            "Longitude": ("slow_time", np.linspace(100, 101, n_traces)),
+            "Longitude": ("slow_time", np.full(n_traces, 100.0)),
             "Heading": ("slow_time", np.zeros(n_traces)),
         },
         coords={"slow_time": slow_time, "twtt": twtt},
@@ -59,7 +59,7 @@ def test_run_qc_callable_key(synthetic_ds):
         mask = xr.DataArray(
             np.ones(ds.sizes["slow_time"], dtype=bool), dims="slow_time"
         )
-        return _apply_qc_mask(ds, mask, "always_pass")
+        return apply_qc_mask(ds, mask, "always_pass")
 
     result = run_qc(synthetic_ds, checks={always_pass: {}})
     assert "qc_always_pass" in result
@@ -73,7 +73,7 @@ def test_run_qc_mixed_keys(synthetic_ds):
         mask = xr.DataArray(
             np.zeros(ds.sizes["slow_time"], dtype=bool), dims="slow_time"
         )
-        return _apply_qc_mask(ds, mask, "flag_none")
+        return apply_qc_mask(ds, mask, "flag_none")
 
     result = run_qc(
         synthetic_ds,
@@ -100,7 +100,7 @@ def test_run_qc_auto_loads_picks():
         {
             "Data": (["slow_time", "twtt"], np.random.rand(n_traces, n_samples)),
             "Latitude": ("slow_time", np.linspace(-75, -74, n_traces)),
-            "Longitude": ("slow_time", np.linspace(100, 101, n_traces)),
+            "Longitude": ("slow_time", np.full(n_traces, 100.0)),
             "Heading": ("slow_time", np.zeros(n_traces)),
         },
         coords={
@@ -126,3 +126,10 @@ def test_run_qc_auto_loads_picks():
     assert "standard:bottom" in result
     assert "standard:surface" in result
     mock_opr.get_layers.assert_called_once()
+
+
+def test_run_qc_without_heading(synthetic_ds):
+    result = run_qc(synthetic_ds.drop_vars("Heading"))
+    assert "qc_heading_change" in result
+    assert result.attrs["heading_source"] == "gps"
+    assert result["qc_heading_change"].all()
