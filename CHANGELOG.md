@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- QC: reconstruct `Heading` from GPS positions (`xopr.add_heading`, `xopr.qc.ensure_heading`) so `heading_change` works on seasons without an INS heading; `apply_qc_mask` is now public for custom checks
+
 ## [0.5.0] - 2026-04-21
 
 - STAC catalog: parquet schema fixes, morton indexing, spatial matching, and full season YAML coverage ([#73](https://github.com/englacial/xopr/pull/73)) by @espg
