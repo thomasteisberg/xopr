@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-09-07
+
+- Support heading estimation from GPS ([#100](https://github.com/englacial/xopr/pull/100)) by @thomasteisberg
+- Notebook and projection fixes for OPR workshop ([#98](https://github.com/englacial/xopr/pull/98)) by @thomasteisberg
+- Migrate away from relying on GCS bucket and do a docs update sweep ([#97](https://github.com/englacial/xopr/pull/97)) by @thomasteisberg
+- Flight line coverage increased from: 1467565 km → 1405622 km ([#91](https://github.com/englacial/xopr/pull/91)) by @github-actions
+- QC data filtering and non-standard product loading ([#79](https://github.com/englacial/xopr/pull/79)) by @thomasteisberg
+- Flight line coverage increased from: 1467566 km → 1467565 km ([#89](https://github.com/englacial/xopr/pull/89)) by @github-actions
+
+
 - New `xopr.qc` module: composable per-trace quality checks (`ice_thickness_threshold`, `snr_bed_pick`, `heading_change`, `heading_rate`, `minimum_agl`), a `run_qc` runner, and `apply_qc_mask` for custom checks ([#79](https://github.com/englacial/xopr/pull/79), [#100](https://github.com/englacial/xopr/pull/100)) by @thomasteisberg
 - Reconstruct `Heading` from GPS positions (`xopr.add_heading`, `xopr.qc.ensure_heading`) so `heading_change` works on seasons without an INS heading ([#100](https://github.com/englacial/xopr/pull/100)) by @thomasteisberg
 - QC: `heading_change` default `max_deg_per_km` raised from 2 to 5. At 15–30 m trace spacing the trace-to-trace rate on straight P3 lines exceeded 2 deg/km for 20–45% of traces from heading jitter alone; 5 still flags real turns ([#100](https://github.com/englacial/xopr/pull/100)) by @thomasteisberg
