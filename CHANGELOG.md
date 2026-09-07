@@ -7,8 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-- QC: reconstruct `Heading` from GPS positions (`xopr.add_heading`, `xopr.qc.ensure_heading`) so `heading_change` works on seasons without an INS heading; `apply_qc_mask` is now public for custom checks
-- QC: `heading_change` default `max_deg_per_km` raised from 2 to 5. At 15–30 m trace spacing the trace-to-trace rate on straight P3 lines exceeded 2 deg/km for 20–45% of traces from heading jitter alone; 5 still flags real turns
+- New `xopr.qc` module: composable per-trace quality checks (`ice_thickness_threshold`, `snr_bed_pick`, `heading_change`, `heading_rate`, `minimum_agl`), a `run_qc` runner, and `apply_qc_mask` for custom checks ([#79](https://github.com/englacial/xopr/pull/79), [#100](https://github.com/englacial/xopr/pull/100)) by @thomasteisberg
+- Reconstruct `Heading` from GPS positions (`xopr.add_heading`, `xopr.qc.ensure_heading`) so `heading_change` works on seasons without an INS heading ([#100](https://github.com/englacial/xopr/pull/100)) by @thomasteisberg
+- QC: `heading_change` default `max_deg_per_km` raised from 2 to 5. At 15–30 m trace spacing the trace-to-trace rate on straight P3 lines exceeded 2 deg/km for 20–45% of traces from heading jitter alone; 5 still flags real turns ([#100](https://github.com/englacial/xopr/pull/100)) by @thomasteisberg
+- `load_frame` / `load_frames`: `allow_unlisted_products` and `image` arguments for loading data products and individual images not listed in the STAC item ([#79](https://github.com/englacial/xopr/pull/79)) by @thomasteisberg
+- Docs: south polar stereographic examples now use `true_scale_latitude=-71` to match EPSG:3031; crossover notebook simplified (dask removed) with optional BedMachine comparison; new repicking and QC demo notebooks ([#98](https://github.com/englacial/xopr/pull/98)) by @thomasteisberg
+- Migrate away from the GCS bucket, docs update sweep, pin mortie ([#97](https://github.com/englacial/xopr/pull/97)) by @thomasteisberg
 
 ## [0.5.0] - 2026-04-21
 
