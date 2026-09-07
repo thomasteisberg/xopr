@@ -340,11 +340,11 @@ jobs:
         TAG_NAME="${{ steps.get_tag.outputs.tag }}"
         
         # Get the section for this release from CHANGELOG.md
-        awk "/^## \[$TAG_NAME\]/, /^## \[.*\]/ {
-          if (/^## \[$TAG_NAME\]/) { found=1; print; next }
-          if (/^## \[.*\]/ && found) { exit }
-          if (found) print
-        }" CHANGELOG.md > release_notes.md
+        awk -v tag="$TAG_NAME" '
+          index($0, "## [" tag "]") == 1 { found=1; print; next }
+          found && /^## \[/ { exit }
+          found { print }
+        ' CHANGELOG.md > release_notes.md
         
         # Remove trailing empty lines
         sed -i '/^$/N;/^\n$/d' release_notes.md
