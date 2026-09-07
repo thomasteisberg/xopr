@@ -133,3 +133,10 @@ def test_run_qc_without_heading(synthetic_ds):
     assert "qc_heading_change" in result
     assert result.attrs["heading_source"] == "gps"
     assert result["qc_heading_change"].all()
+
+
+def test_run_qc_heading_only_needs_no_picks(synthetic_ds):
+    ds = synthetic_ds.drop_vars(["Heading", "standard:surface", "standard:bottom"])
+    result = run_qc(ds, checks={"heading_change": {}})
+    assert result["qc_heading_change"].all()
+    assert "standard:surface" not in result
