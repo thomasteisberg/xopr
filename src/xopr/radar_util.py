@@ -76,7 +76,7 @@ def _seconds(t):
     return t.astype(float)
 
 
-def add_heading(ds: xr.Dataset, smooth_m: float = 100.0, min_step_m: float = 0.5,
+def add_heading(ds: xr.Dataset, smooth_m: float = 200.0, min_step_m: float = 0.5,
                 max_gap_s: float = 10.0, overwrite: bool = False) -> xr.Dataset:
     """
     Add a ``Heading`` variable reconstructed from the GPS track.

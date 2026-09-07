@@ -24,7 +24,8 @@ def run_qc(ds, checks=None, opr=None):
 
     If ``standard:surface`` or ``standard:bottom`` variables are missing
     from the dataset, they are automatically loaded from layer picks via
-    *opr*.
+    *opr* (skipped when only ``heading_change`` is requested). A missing
+    ``Heading`` is reconstructed from GPS positions by ``heading_change``.
 
     Parameters
     ----------
@@ -85,7 +86,9 @@ def run_qc(ds, checks=None, opr=None):
         else:
             raise TypeError(f"Check keys must be strings or callables, got {type(key)}")
 
-    ds = ensure_picks(ds, opr=opr)
+    # heading_change fills its own inputs (GPS heading); everything else needs picks
+    if any(fn is not heading_change for fn, _ in resolved):
+        ds = ensure_picks(ds, opr=opr)
 
     for fn, kwargs in resolved:
         ds = fn(ds, **kwargs)
