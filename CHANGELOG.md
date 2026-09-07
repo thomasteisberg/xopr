@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 - QC: reconstruct `Heading` from GPS positions (`xopr.add_heading`, `xopr.qc.ensure_heading`) so `heading_change` works on seasons without an INS heading; `apply_qc_mask` is now public for custom checks
+- QC: `heading_change` default `max_deg_per_km` raised from 2 to 5. At 15–30 m trace spacing the trace-to-trace rate on straight P3 lines exceeded 2 deg/km for 20–45% of traces from heading jitter alone; 5 still flags real turns
 
 ## [0.5.0] - 2026-04-21
 

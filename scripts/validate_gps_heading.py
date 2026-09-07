@@ -118,7 +118,7 @@ def compare(ds, label):
         row[f"nflag_meas_{thr:g}"] = int(fm.sum())
         row[f"nflag_gps_{thr:g}"] = int(fg.sum())
     if "Heading_naive" in ds:
-        naive = heading_change(ds.assign(Heading=ds["Heading_naive"]), max_deg_per_km=2.0,
+        naive = heading_change(ds.assign(Heading=ds["Heading_naive"]), max_deg_per_km=5.0,
                                source="measured")["qc_heading_change"].values
         row["nflag_naive_mean_2"] = int((~naive).sum())
     return row, ds, gps, r_meas, r_gps

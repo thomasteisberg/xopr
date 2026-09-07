@@ -319,7 +319,7 @@ def heading_rate(ds):
     return xr.DataArray(rate, dims="slow_time", attrs={"units": "degrees/km"})
 
 
-def heading_change(ds, max_deg_per_km=2.0, source="auto", **heading_kwargs):
+def heading_change(ds, max_deg_per_km=5.0, source="auto", **heading_kwargs):
     """
     Flag traces with rapid aircraft heading changes.
 
@@ -337,7 +337,8 @@ def heading_change(ds, max_deg_per_km=2.0, source="auto", **heading_kwargs):
         reconstructed, ``Heading`` (radians).
     max_deg_per_km : float, optional
         Maximum acceptable heading change in degrees per kilometre.
-        Default 2.
+        Default 5: at typical 15–30 m trace spacing, the trace-to-trace rate
+        on straight P3 lines routinely exceeds 2 deg/km from INS/GPS jitter.
     source : {"auto", "measured", "gps"}, optional
         Heading source policy, see :func:`ensure_heading`.
     **heading_kwargs
